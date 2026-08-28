@@ -5,6 +5,14 @@ from typing import Dict, Any
 DEFAULT_MD_TEMPLATE = """# CHANGE PROOF CERTIFICATE
 Generated: {{ timestamp }} | Experiment: {{ experiment_id }} | Commit: {{ git_commit }}
 
+{% if verification_status == "PASS" %}
+> **STATUS**: ✅ **PROVEN & VERIFIED SAFE** — Patch passed deterministic criteria.
+{% elif verification_status == "INCONCLUSIVE" %}
+> **STATUS**: ⚠️ **INCONCLUSIVE** — Insufficient runtime evidence to prove safety. NOT CERTIFIED FOR PRODUCTION.
+{% else %}
+> **STATUS**: ❌ **VERIFICATION FAILED** — Remediation patch failed deterministic assertions.
+{% endif %}
+
 ## Evaluation Summary
 - **Risk Level**: {{ risk_level }} (Score: {{ risk_score }}/100)
 - **Failure Class**: Retry Amplification / Retry Storm

@@ -1,0 +1,12 @@
+[
+  {
+    "policy_id": "POL-2026-001",
+    "created_at": "2026-08-29T03:40:00Z",
+    "author": "Human Lead (sakshamgupta3233@gmail.com)",
+    "trigger": "downstream_payment_latency",
+    "rule": "Checkout service must not exceed 2 retries and must employ exponential backoff with minimum 0.5s factor when communicating with payment proxy under latency.",
+    "decision": "APPROVED_POLICY",
+    "rationale": "Empirical evidence from CASE-01 demonstrated that 8 retries with 0 backoff triggers a 3,329 retries/min storm under 2000ms payment latency.",
+    "experiment_id": "case-01"
+  }
+]

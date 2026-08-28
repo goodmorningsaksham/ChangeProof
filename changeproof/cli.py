@@ -1,10 +1,26 @@
 """ChangeProof unified command line interface."""
 import os
 import sys
-import argparse
 import json
+import argparse
+from typing import Dict, Any
 from changeproof.agent import ChangeProofAgent
 from changeproof.verifier import verify
+
+def prompt_human_decision(experiment_id: str) -> Dict[str, Any]:
+    """Interactive human approval gate for deployment decisions."""
+    print(f"\n--- ChangeProof Human Engineering Approval Gate [{experiment_id}] ---")
+    print("1) Approve & Deploy Remediation")
+    print("2) Reject Remediation")
+    print("3) Escalate for Further Review")
+    choice = input("Enter decision [1-3] (default 3): ").strip()
+    
+    if choice == "1":
+        return {"status": "APPROVED", "action": "deploy", "experiment_id": experiment_id}
+    elif choice == "2":
+        return {"status": "REJECTED", "action": "block", "experiment_id": experiment_id}
+    else:
+        return {"status": "HOLD", "action": "escalate_for_review", "experiment_id": experiment_id}
 
 def main():
     parser = argparse.ArgumentParser(description="ChangeProof Agentic Reliability System")
