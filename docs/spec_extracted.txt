@@ -1,0 +1,339 @@
+ChangeProof
+Formal Engineering Specification
+Revision 1.1
+“A high-risk code change must prove itself before production.”
+Field
+Value
+Document status
+Working Engineering Specification
+Project
+ChangeProof
+Revision
+1.1 — updated after review of official hackathon instructions
+Scope basis
+Decisions established in the project discussion plus the uploaded hackathon instructions
+Primary focus
+One fully real retry-amplification / retry-storm failure class, evaluated across multiple cases
+Scope rule
+The project prioritizes one complete, provable engineering loop over breadth. Additional features must not compromise the end-to-end loop.
+1. Executive Summary
+ChangeProof is an agentic reliability system designed to evaluate a high-risk software change before production. Its central premise is that the change should produce evidence that it is safe enough for a human to approve.
+Rather than relying only on static code analysis and conventional tests, ChangeProof uses a primary coding/reasoning agent to inspect the proposed change and actual system context, form counterfactual failure hypotheses, execute real experiments, reproduce failures, generate a remediation, replay the experiment against the patched version, and package the result for independent verification and human review.
+Core loop
+Hypothesis → Experiment → Evidence → Patch → Replay → Independent Verification → Human Judgment → Policy Learning
+2. Problem Statement
+A software change can pass unit tests, integration tests, and conventional code review while still causing a distributed-system failure under conditions that ordinary CI does not exercise.
+The selected failure class is retry amplification / retry storm. A change that increases retry behaviour can appear safe under normal test conditions but become unsafe when a downstream dependency becomes slow, causing amplified traffic and downstream resource pressure.
+Example3 retries → 8 retries        ↓downstream latency increases        ↓retry amplification        ↓resource pressure / cascading degradation
+2.1 Intended User
+The intended users are software teams with production services, particularly developers, SREs, and platform engineers who need to evaluate high-risk changes before deployment.
+2.2 User Bottleneck
+The bottleneck is the manual effort required to connect code changes with service dependencies, runtime behaviour, failure conditions, and engineering constraints before deciding whether a change is safe.
+2.3 Product Value
+ChangeProof turns that investigation into a repeatable, experimentally grounded workflow that gives the human reviewer evidence instead of only an AI opinion.
+3. Design Objectives
+1. Evaluate a meaningful, high-risk engineering change rather than provide a generic AI SRE assistant.
+2. Use an agent purposefully: better context, tools, and experimentation must materially improve the task.
+3. Demonstrate a meaningful improvement over a reasonable baseline using the same evaluation cases.
+4. Make failure hypotheses evidence-grounded and experimentally testable.
+5. Produce a reproducible artifact that another person can replay from a clean environment.
+6. Keep consequential actions inside an isolated/sandboxed environment and require human approval before consequential decisions.
+7. Prefer one fully working failure class over multiple partially implemented features.
+4. Solution Definition
+ChangeProof sits between a code change and production. It evaluates whether a high-risk change can withstand a realistic adverse condition, and if not, uses a coding agent to generate a remediation and then verifies the result.
+GitHub PR   ↓Risk Assessment   ↓Context Builder   ↓Coding / Reasoning Agent   ↓Counterfactual Hypothesis   ↓Executable Experiment   ↓Isolated Environment + Real Fault Injection   ↓Observed Evidence   ↓Patch   ↓Replay Exact Experiment   ↓Deterministic Independent Verification   ↓Proof Certificate + Reproduction Capsule   ↓Human Decision   ↓Policy Store
+5. Baseline and Advanced Solution
+The official hackathon instructions require a fair baseline comparison using the same evaluation cases. The baseline must represent a reasonable basic way to handle the task, not an intentionally weak strawman.
+5.1 Baseline
+The agreed baseline is a conventional coding-agent workflow with repository/context inspection, static analysis, unit tests, integration tests, and basic coding-agent review/remediation.
+PR ↓Repository / context inspection ↓Static analysis ↓Unit tests ↓Integration tests ↓Basic coding-agent review / remediation
+5.2 Advanced Solution
+The advanced system includes the baseline workflow and adds runtime context, dependency/topology reasoning, counterfactual experimentation, real fault injection, failure reproduction, patch generation, exact replay, deterministic independent verification, reproducibility, human judgment, and lightweight policy learning.
+Baseline workflow   +Runtime context   +Dependency / topology evidence   +Counterfactual experiment   +Real fault injection   +Failure reproduction   +Patch + regression test   +Exact replay   +Independent deterministic verification
+5.3 Fairness Requirement
+The baseline and advanced solution must receive the same fixed evaluation cases and be evaluated under the same evaluation methodology.
+6. MVP Scope
+The MVP focuses on one failure class: retry amplification / retry storm. The scenario must be implemented as a real distributed application with an actual service dependency and a real injected fault condition.
+The project is intentionally not defined as one single test case. The retry-amplification failure class is evaluated across a fixed set of controlled cases, with 10 or more cases as a target where practical, including at least one challenging case.
+6.1 Required MVP Capabilities
+Capability
+Requirement
+Real application
+Use an actual distributed application rather than a purely conceptual or textual simulation.
+Real dependency topology
+Derive the relevant dependency relationships from the real application/runtime configuration.
+Runtime evidence
+Use actual runtime evidence to ground the investigation.
+Counterfactual experimentation
+Generate a meaningful “what if” failure condition and turn it into an executable experiment.
+Real fault injection
+Inject the selected dependency fault into the evaluation environment.
+Failure reproduction
+Demonstrate the suspected failure through observable execution evidence.
+Coding-agent remediation
+Generate an actual code/configuration patch.
+Exact re-execution
+Replay the same experiment against the patched version.
+Independent verification
+Use a deterministic mechanism that evaluates observable execution results rather than another LLM opinion.
+Reproduction Capsule
+Capture the information needed to reproduce and replay the experiment.
+Proof Certificate
+Present concise evidence for human review.
+Human approval
+Require human judgment for the consequential decision.
+Policy learning
+Record explicit human engineering decisions as lightweight structured constraints for future evaluations.
+7. Agent Architecture
+The final MVP does not use the previously considered six-agent architecture. The agreed architecture uses one primary coding/reasoning agent plus a deterministic verification engine.
+7.1 Primary Coding / Reasoning Agent
+The primary agent performs the investigative and coding workflow through engineering tools. Its conceptual capabilities are:
+Inspect repository and relevant code.
+Inspect relevant topology and configuration.
+Inspect runtime evidence.
+Form candidate failure hypotheses.
+Design and execute an experiment.
+Interpret observations.
+Modify code/configuration to address a reproduced issue.
+Run tests and prepare the evidence artifacts.
+7.2 Deterministic Verification Engine
+The verifier is not another LLM grading the coding agent. It executes the required workload and fault condition against the patched environment and evaluates explicit assertions/results.
+patched repository      ↓fresh / isolated evaluation      ↓same workload      ↓same fault condition      ↓same assertions      ↓PASS / FAIL
+8. Grounding and Hypothesis Requirements
+Failure hypotheses must be grounded in the actual system. The project must avoid a circular workflow in which an LLM guesses a failure and the system then injects exactly that failure as proof.
+Actual code + actual topology + actual runtime evidence                    ↓            Candidate hypotheses                    ↓               Experiment                    ↓                Observation                    ↓          Supported / rejected hypothesis
+8.1 Competing Hypotheses
+The workflow may consider multiple candidate explanations such as retry amplification, connection-pool exhaustion, and queue starvation. The important requirement is that the selected explanation be connected to observable evidence and experimentally tested.
+The exact hypothesis ranking/scoring mechanism is unresolved.
+9. Counterfactual Experimentation
+Counterfactual experimentation is a core differentiator and must remain in the MVP. The agent must move from a static code-review question to an executable question about system behaviour under changed conditions.
+For the selected retry scenario, the canonical example is downstream latency injection.
+Observed change: retry behaviour increases        ↓Counterfactual: “What happens if the downstream takes 5 seconds to respond?”        ↓Generate experiment        ↓Inject latency + generate traffic        ↓Observe system        ↓Use evidence to support or reject the hypothesis
+10. Reproduction Capsule
+The Reproduction Capsule is a core feature and a formal reproducibility artifact. It must capture the information needed to reproduce the relevant experiment and support the clean-environment reproduction requirement.
+The agreed conceptual contents include:
+Commit/version identity.
+Environment and configuration.
+Dependency information.
+Workload/traffic definition.
+Fault configuration.
+Experiment definition and relevant execution state.
+The exact schema, storage format, determinism mechanism, and replay interface remain unresolved.
+11. Independent Verification
+Independent verification exists to prevent the coding agent from grading its own work. Verification must be based on reproducible execution outcomes in an isolated environment.
+The exact verification assertions and safety thresholds remain unresolved. The agreed direction is to rerun the original experiment and evaluate explicit runtime outcomes.
+12. Human Judgment and Policy Learning
+12.1 Human Decision Boundary
+The system does not autonomously mutate production. Consequential actions are kept inside the sandbox/simulation, and the final consequential decision remains with a human reviewer.
+12.2 Lightweight Policy Learning
+Policy learning is retained, but intentionally lightweight. A human decision can become a structured rule in a policy store and constrain future evaluations.
+Human decision      ↓Structured engineering rule      ↓Policy store      ↓Future agent constraints
+Example discussed: a human establishes that payment retries must not exceed a selected limit. The exact storage format, conflict handling, and policy vocabulary are unresolved.
+Heavyweight reinforcement learning, neural policy training, and complex preference modelling are explicitly out of scope for the MVP.
+13. Risk-Adaptive Execution
+The system includes a risk assessment step so that the expensive experimental workflow is reserved for changes whose risk justifies it.
+PR ↓Risk assessment ↓LOW       → lighter evaluationMEDIUM    → intermediate evaluationHIGH      → full ChangeProof experiment
+The exact risk-scoring model and thresholds are unresolved. A transparent scoring approach was discussed as an implementation option but is not yet a finalized decision.
+14. Challenging / Holdout Evaluation
+The evaluation must include at least one challenging case and report what it revealed. The project should also avoid presenting only cases that were effectively tailored to the final system.
+The agreed principle is to include variations of the retry-amplification failure class in the fixed evaluation set and to include a nontrivial holdout or challenging case. The exact case set and holdout design are unresolved.
+14.1 Honest Failure Handling
+The system must be able to report an inconclusive result when evidence is insufficient rather than manufacture confidence.
+Hypothesis: retry amplificationEvidence: insufficient / not reproducibleResult: INCONCLUSIVERecommendation: human investigation required
+15. Primary Metric and Evaluation
+15.1 Primary Metric
+The selected primary metric is:
+Verified Safe Change Rate
+The working definition is the percentage of evaluation cases in which the system correctly determines the change’s safety status and, when remediation is required, produces a patch that passes independent verification. The exact operationalization remains unresolved.
+15.2 Secondary Metrics
+Human time per task.
+Cost per task.
+Execution time.
+Failure reproduction rate.
+Patch success rate.
+Replayability / proof generation success.
+Adversarial or holdout coverage where included.
+15.3 Evaluation Rules
+1. Define the evaluation cases before the final baseline-vs-advanced comparison.
+2. Use the same cases for baseline and advanced.
+3. Do not fabricate benchmark values; measure actual runs.
+4. Include at least one challenging case and document the learning from it.
+5. Connect each reported result to execution evidence.
+16. Improvement Changelog
+The project must maintain a chronological changelog of meaningful experiments. Each entry records what was tried, why it was tried, evidence/results, the decision, and the resulting learning. Removed experiments should also be recorded when they materially informed the final design.
+Stage
+What was tried / why
+Evidence / result
+Decision / learning
+Baseline
+Conventional coding-agent workflow. Establish the starting point.
+Measured on the fixed evaluation cases.
+Establish baseline.
+Runtime context
+Add runtime evidence because static analysis can miss distributed runtime behaviour.
+Measured using the same cases.
+Keep or revise based on evidence.
+Counterfactual experiment
+Add executable experiments to test failure hypotheses.
+Measure reproduction and outcome.
+Core feature retained.
+Patch generation
+Use coding agent to remediate reproduced failures.
+Patch and test results.
+Keep/revise based on evidence.
+Verification
+Add deterministic verification after observing that an agent cannot credibly grade itself.
+Independent execution result.
+Core feature retained.
+Reproduction Capsule
+Add replayable experiment state to support reproducibility.
+Clean-environment replay.
+Core feature retained.
+Policy learning
+Record human engineering judgments as structured constraints.
+Future-evaluation behaviour.
+Retained in lightweight form.
+Removed: six-agent orchestration
+Considered multiple specialized agents.
+Added orchestration complexity without a sufficiently justified measured benefit for MVP scope.
+Removed to protect end-to-end quality.
+Final
+Combine retained components into the complete workflow.
+Final baseline-vs-advanced comparison.
+Identify main contribution.
+The exact numerical results for the changelog are intentionally not populated in this specification; they must come from actual experiments during implementation.
+17. Proof Certificate
+The Proof Certificate is the primary user-facing evidence artifact. It should communicate why the evaluated change is considered safe enough for human review.
+CHANGE PROOF──────────────────────────────Risk: HIGHAffected services: checkout, payment, databaseFailure hypothesis: retry amplificationFailure reproduced: YESOriginal experiment: FAILPatch: generatedPatched experiment: PASSHoldout / adversarial variant: PASS / RESULTReplay capsule: AVAILABLEIndependent verifier: PASSHuman decision: REQUIRED
+The exact presentation mechanism (UI, CLI, GitHub comment, or combination) remains unresolved.
+18. Demonstration Flow
+1. Show a pull request containing the high-risk retry-related change.
+2. Run the baseline workflow on the same case.
+3. Run ChangeProof and show the relevant context it gathers.
+4. Show the counterfactual question and the generated experiment.
+5. Inject the real dependency fault and drive the workload.
+6. Show the reproduced failure through observable runtime evidence.
+7. Show the coding agent generate the remediation.
+8. Replay the exact experiment against the patched version.
+9. Run deterministic independent verification.
+10. Show the Proof Certificate and Reproduction Capsule.
+11. Show the human decision boundary.
+12. Show how a selected human decision can become a lightweight policy constraint.
+19. Deliberate Scope Exclusions
+Excluded from MVP
+Reason for exclusion
+Six-agent architecture
+Avoid orchestration overhead; one meaningful agent trajectory is preferred.
+Three separate failure scenarios
+Protect end-to-end reliability; one failure class is the core product.
+Autonomous production remediation
+Consequential actions remain sandboxed and human-controlled.
+Full FinOps subsystem
+Not required for the core reliability proof.
+Giant observability platform
+Use observability as evidence; do not build a competing platform.
+Large knowledge graph
+A relevant dependency representation is sufficient.
+Large benchmark framework
+Use a focused fixed evaluation set aligned to the selected failure class.
+Heavyweight policy-learning system
+Keep only lightweight structured human-policy learning.
+20. Explicit Non-Goals
+Generic AI SRE chatbot.
+Generic Kubernetes assistant.
+AI observability dashboard.
+Autonomous production-operations system.
+Generic AI code reviewer.
+Full cloud FinOps product.
+21. Reproducibility Requirements
+The final submission must provide a clean-environment reproduction path for the baseline, final solution, and evaluation. The reproduction guide must include setup instructions, exact commands, required data, expected output, relevant versions, approximate runtime, and approximate cost.
+The Reproduction Capsule must support replay of the relevant experiment and must be tied to the evidence shown in the final result.
+22. Agent Trajectory Evidence
+The final submission must include representative trajectories for every agent actually used. Each trajectory should make it possible to follow the instructions given to the agent, the tools it used, the tool responses, feedback, retries, and human checkpoints leading to the result.
+The final MVP intentionally minimizes the number of agents so that the trajectory of the primary coding/reasoning agent is meaningful and auditable.
+23. Technology and Runtime Constraints
+The hackathon technology policy supports Python, TypeScript, Java, C++, Go, and Rust, with commonly used frameworks and libraries in those ecosystems, subject to the final problem requirements. The policy also notes that a starter repository, runtime, dependency limits, API access, or deterministic testing environment may be prescribed by the problem materials.
+This specification therefore does not lock an implementation language, agent framework, fault-injection tool, or telemetry tool before those unresolved implementation decisions are made.
+24. Success Criteria
+The MVP is successful when the following are demonstrated with a working implementation and measured evidence:
+1. A realistic high-risk change passes the conventional baseline for at least some evaluation cases.
+2. ChangeProof uses actual system context rather than only generic LLM knowledge.
+3. ChangeProof generates and executes a meaningful counterfactual experiment.
+4. The experiment reproduces a real failure where expected.
+5. The coding agent generates a real remediation.
+6. The original experiment can be replayed against the remediation.
+7. Independent deterministic verification can evaluate the patched result.
+8. The result can be captured in a Reproduction Capsule.
+9. The system produces a usable Proof Certificate for human review.
+10. Human decisions can be represented as lightweight policies that influence future evaluations.
+11. The baseline and advanced solutions can be compared on the same fixed evaluation cases using the primary metric and supporting measurements.
+25. Unresolved Decisions
+The following items were discussed but are not finalized. They should not be treated as settled requirements.
+Area
+Unresolved decision
+Coding agent
+Exact model/framework and tool interface.
+Orchestration
+Exact workflow/state-machine framework, if any.
+Application
+Exact repository/application used for the scenario.
+Runtime environment
+Exact sandbox/runtime choice and whether Kubernetes is included.
+Telemetry
+Exact telemetry stack and storage.
+Fault injection
+Exact technology and injection interface.
+Load generation
+Exact workload/load-generation technology.
+Dependency topology
+Exact extraction/representation mechanism.
+Hypothesis engine
+Exact scoring/ranking and stopping rules.
+Risk engine
+Exact scoring formula and thresholds.
+Reproduction Capsule
+Exact schema, storage, determinism mechanism, and replay interface.
+Verification
+Exact assertions, thresholds, and pass/fail rules.
+Evaluation cases
+Exact list of 10+ cases, challenging case, and holdout design.
+Primary metric
+Exact operational formula and treatment of false positives/false negatives.
+Policy learning
+Exact policy schema, vocabulary, and conflict handling.
+Proof Certificate
+Exact UI/CLI/PR presentation mechanism and format.
+Submission measurements
+Final runtime and cost measurements.
+26. Final Canonical Definition
+Product definition
+ChangeProof is an agentic reliability system that makes a high-risk code change prove itself before production.
+Core differentiator
+The system does not merely review what the code says. It constructs experiments to discover what the system actually does under failure conditions, then proves whether the generated fix works.
+Canonical workflow
+PR → Risk Analysis → Context → Counterfactual Hypothesis → Executable Experiment → Real Failure Reproduction → Coding-Agent Remediation → Exact Replay → Independent Verification → Proof Certificate / Reproduction Capsule → Human Decision → Policy Learning
+27. Governing Hackathon Requirements Used in Revision 1.1
+This revision incorporates the requirements visible in the uploaded official hackathon instructions. Relevant points are summarized below for traceability:
+Requirement
+How this specification responds
+Specific user + bottleneck
+Sections 2.1–2.3 define the intended user, bottleneck, and practical value.
+Purposeful agent design
+Sections 3, 7, and 9 emphasize purposeful tools, context, experimentation, and verification.
+Fair baseline comparison
+Section 5 requires the same evaluation cases for baseline and advanced.
+Improvement changelog
+Section 16 defines the required iterative evidence/decision record, including removed experiments.
+Primary metric
+Section 15 defines Verified Safe Change Rate as the selected primary metric, with operational details still unresolved.
+Challenging case
+Section 14 requires at least one challenging case and honest reporting of what it reveals.
+Reproducibility
+Sections 10, 21, and 27 make the Reproduction Capsule and clean-environment reproduction first-class requirements.
+Human control
+Section 12 preserves human approval and sandboxed consequential actions.
+Agent trajectories
+Section 22 addresses representative trajectory capture for every agent used.
+Technology policy
+Section 23 preserves implementation flexibility subject to the final problem materials.
+Source basis: uploaded micro1 Agentic Workflows Hackathon instructions, especially pages 1–7 covering the challenge, agent design, improvement changelog, evaluation, judging, ground rules, and final deliverables.

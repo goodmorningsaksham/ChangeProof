@@ -1,0 +1,98 @@
+version: "3.8"
+
+networks:
+  changeproof-net:
+    driver: bridge
+
+services:
+  payment-service:
+    build:
+      context: ./app/payment
+      dockerfile: Dockerfile
+    container_name: payment-service
+    ports:
+      - "8002:8002"
+    networks:
+      - changeproof-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8002/health\")'"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: toxiproxy
+    ports:
+      - "8474:8474"   # Admin REST API
+      - "18002:18002" # Proxy listen port for payment service
+    networks:
+      - changeproof-net
+    command: ["-host=0.0.0.0", "-config=/etc/toxiproxy.json"]
+    volumes:
+      - ./toxiproxy_init.json:/etc/toxiproxy.json
+    depends_on:
+      payment-service:
+        condition: service_healthy
+
+  checkout-service:
+    build:
+      context: ./app/checkout
+      dockerfile: Dockerfile
+    container_name: checkout-service
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+      - PAYMENT_SERVICE_URL=http://toxiproxy:18002
+      - RETRIES_MAX=3
+      - RETRY_TIMEOUT_SECONDS=1.0
+      - RETRY_BACKOFF_FACTOR=0.5
+    networks:
+      - changeproof-net
+    depends_on:
+      - toxiproxy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8001/health\")'"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  frontend-service:
+    build:
+      context: ./app/frontend
+      dockerfile: Dockerfile
+    container_name: frontend-service
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - CHECKOUT_SERVICE_URL=http://checkout-service:8001
+      - GATEWAY_TIMEOUT_SECONDS=5.0
+    networks:
+      - changeproof-net
+    depends_on:
+      checkout-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - changeproof-net
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=1h"
+    depends_on:
+      - frontend-service
+      - checkout-service
+      - payment-service
