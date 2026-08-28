@@ -1,6 +1,46 @@
-# CASE-10: SEALED HOLDOUT CASE
-# WARNING: This case is SEALED per AGENTS.md §17.
-# Do not inspect, read, parse, or tune against this file until final formal evaluation.
-id: "case-10-holdout"
-status: "SEALED"
-note: "Sealed parameter matrix held for honest generalization testing."
+# CASE-10: UNSEALED HOLDOUT CASE (Formal Generalization Evaluation)
+id: "case-10"
+version: "1.0"
+status: "ACTIVE"
+title: "Compound Failure: High Latency and Concurrency Wave Induce Retry Cascade"
+description: "Blind generalization holdout test combining 3500ms downstream latency, concurrent load spike, and un-jittered retries."
+
+target:
+  compose_file: "docker-compose.yml"
+  git_commit: "main"
+
+fault:
+  tool: "toxiproxy"
+  proxy: "payment-proxy"
+  admin_url: "http://localhost:8474"
+  toxic:
+    type: "latency"
+    attributes:
+      latency: 3500
+      jitter: 150
+
+workload:
+  tool: "k6"
+  script: "workloads/checkout_load.js"
+  duration: "45s"
+  vus: 15
+  rps_target: 45
+
+measurements:
+  prometheus_url: "http://localhost:9090"
+  scrape_interval_s: 1
+  metrics:
+    - name: "retry_count_total"
+      labels: { service: "checkout", target: "payment" }
+    - name: "http_errors_total"
+      labels: { service: "checkout" }
+
+assertions:
+  pre_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min > 250"
+      description: "Severe compound retry cascade visible under latency and concurrency"
+  post_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min < 60"
+      description: "Retry budget and exponential backoff prevent downstream cascade"

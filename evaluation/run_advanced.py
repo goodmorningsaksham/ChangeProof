@@ -59,11 +59,14 @@ class AdvancedRunner:
             "deterministic_verification": True,
         }
 
-    def run_all(self) -> List[Dict[str, Any]]:
+    def run_all(self, include_sealed: bool = False) -> List[Dict[str, Any]]:
         results = []
         for file in sorted(os.listdir(self.cases_dir)):
-            if file.endswith(".yaml") and not file.startswith("case_10"):
-                results.append(self.evaluate_case(file))
+            if not file.endswith(".yaml"):
+                continue
+            if not include_sealed and file.startswith("case_10"):
+                continue
+            results.append(self.evaluate_case(file))
         return results
 
 if __name__ == "__main__":

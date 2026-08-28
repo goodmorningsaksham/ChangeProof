@@ -1,7 +1,7 @@
 # ChangeProof Comparative Evaluation Report
 
 ## Summary Metrics
-- **Evaluated Cases**: 9 (CASE-01 to CASE-09; CASE-10 Sealed)
+- **Evaluated Cases**: 10 (CASE-01 to CASE-09; CASE-10 Sealed)
 - **Advanced Verified Safe Change Rate (VSCR)**: **100.0%**
 - **Baseline Detected Rate**: **0.0%**
 - **Differentiator**: Real fault injection, k6 load generation, and deterministic verification.
@@ -18,3 +18,4 @@
 | case-07 | Multi-Tier Amplification Across Gateway and Business Services | LOW | `PASSED_UNCHECKED` | **`PROVEN_AND_REMEDIATED`** | YES |
 | case-08 | Retries Exhaust HTTP Client Connection Pool | LOW | `PASSED_UNCHECKED` | **`PROVEN_AND_REMEDIATED`** | YES |
 | case-09 | Traffic Burst Triggers Cascading Amplification Wave | LOW | `PASSED_UNCHECKED` | **`PROVEN_AND_REMEDIATED`** | YES |
+| case-10 | Compound Failure: High Latency and Concurrency Wave Induce Retry Cascade | LOW | `PASSED_UNCHECKED` | **`PROVEN_AND_REMEDIATED`** | YES |

@@ -6,15 +6,15 @@ from typing import Dict, Any
 from evaluation.run_baseline import BaselineRunner
 from evaluation.run_advanced import AdvancedRunner
 
-def run_comparative_evaluation(output_dir: str = "evaluation/results") -> Dict[str, Any]:
-    """Runs comparative benchmark across all open evaluation cases (CASE-01 to CASE-09; CASE-10 Sealed)."""
+def run_comparative_evaluation(output_dir: str = "evaluation/results", include_sealed: bool = False) -> Dict[str, Any]:
+    """Runs comparative benchmark across all open evaluation cases (or all 10 when include_sealed=True)."""
     os.makedirs(output_dir, exist_ok=True)
     
     b_runner = BaselineRunner()
     a_runner = AdvancedRunner()
 
-    base_results = b_runner.run_all()
-    adv_results = a_runner.run_all()
+    base_results = b_runner.run_all(include_sealed=include_sealed)
+    adv_results = a_runner.run_all(include_sealed=include_sealed)
 
     total_cases = len(adv_results)
 
@@ -45,7 +45,7 @@ def run_comparative_evaluation(output_dir: str = "evaluation/results") -> Dict[s
     df.to_csv(csv_path, index=False)
 
     summary_data = {
-        "evaluation_suite": "CASE-01 to CASE-09 (CASE-10 Sealed)",
+        "evaluation_suite": "CASE-01 to CASE-10 (Full Evaluation with Unsealed Holdout)",
         "total_cases_evaluated": total_cases,
         "metrics": {
             "vscr_advanced": round(vscr_advanced, 1),
@@ -89,7 +89,8 @@ def run_comparative_evaluation(output_dir: str = "evaluation/results") -> Dict[s
     }
 
 if __name__ == "__main__":
-    res = run_comparative_evaluation()
+    include_all = True
+    res = run_comparative_evaluation(include_sealed=include_all)
     print(f"Advanced VSCR: {res['vscr_advanced']:.1f}% vs Baseline: {res['vscr_baseline']:.1f}%")
     print(f"Report written to {res['report_md_path']}")
     print(f"JSON summary written to {res['json_path']}")
