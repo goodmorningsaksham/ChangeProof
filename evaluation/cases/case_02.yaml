@@ -1,0 +1,45 @@
+# CASE-02: Severe Downstream Latency
+id: "case-02"
+version: "1.0"
+title: "Severe Downstream Latency Under Increased Retries"
+description: "Checkout increases retries under 5000ms payment latency."
+
+target:
+  compose_file: "docker-compose.yml"
+  git_commit: "main"
+
+fault:
+  tool: "toxiproxy"
+  proxy: "payment-proxy"
+  admin_url: "http://localhost:8474"
+  toxic:
+    type: "latency"
+    attributes:
+      latency: 5000
+      jitter: 200
+
+workload:
+  tool: "k6"
+  script: "workloads/checkout_load.js"
+  duration: "45s"
+  vus: 10
+  rps_target: 50
+
+measurements:
+  prometheus_url: "http://localhost:9090"
+  scrape_interval_s: 1
+  metrics:
+    - name: "retry_count_total"
+      labels: { service: "checkout", target: "payment" }
+    - name: "http_errors_total"
+      labels: { service: "checkout" }
+
+assertions:
+  pre_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min > 200"
+      description: "Severe retry storm visible"
+  post_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min < 40"
+      description: "Retries controlled post remediation"
