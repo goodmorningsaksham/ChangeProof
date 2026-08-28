@@ -9,7 +9,7 @@
 ## Case Breakdown
 | Case ID | Title | Risk Level | Baseline Verdict | Advanced ChangeProof Verdict | Remediation Verified |
 |---|---|---|---|---|---|
-| case-01 | Downstream Latency Induces Retry Amplification Storm | LOW | `PASSED_UNCHECKED` | **`PROVEN_AND_REMEDIATED`** | YES |
+| case-01 | Downstream Latency Induces Retry Amplification Storm | MEDIUM | `PASSED_UNCHECKED` | **`PROVEN_AND_REMEDIATED`** | YES |
 | case-02 | Severe Downstream Latency Under Increased Retries | LOW | `PASSED_UNCHECKED` | **`PROVEN_AND_REMEDIATED`** | YES |
 | case-03 | Immediate Retries Cause Request Clustering | LOW | `PASSED_UNCHECKED` | **`PROVEN_AND_REMEDIATED`** | YES |
 | case-04 | Aggressive Timeout Triggers Pre-mature Retries | LOW | `PASSED_UNCHECKED` | **`PROVEN_AND_REMEDIATED`** | YES |

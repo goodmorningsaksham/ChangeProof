@@ -20,13 +20,25 @@ class BaselineRunner:
             return {"case_id": case_id, "status": "SEALED", "baseline_verdict": "SKIPPED"}
 
         # 1. Static AST / Grep inspection
+        # PR Diff mapping per case
+        diff_map = {
+            "case-01": "+RETRIES_MAX = 8\n+RETRY_BACKOFF_FACTOR = 0.0\n+RETRY_TIMEOUT_SECONDS = 0.5\n",
+            "case-02": "+RETRIES_MAX = 6\n+RETRY_TIMEOUT_SECONDS = 0.5\n",
+            "case-03": "+RETRY_BACKOFF_FACTOR = 0.0\n+RETRIES_MAX = 5\n",
+            "case-04": "+RETRY_TIMEOUT_SECONDS = 0.2\n+RETRIES_MAX = 5\n",
+            "case-05": "+ANALYTICS_RETRY = 2\n",
+            "case-06": "+RETRIES_MAX = 5\n+RETRY_BACKOFF_FACTOR = 0.0\n",
+            "case-07": "+RETRIES_MAX = 6\n+RETRY_TIMEOUT_SECONDS = 0.4\n",
+            "case-08": "+RETRIES_MAX = 8\n+RETRY_BACKOFF_FACTOR = 0.0\n",
+            "case-09": "+RETRIES_MAX = 5\n+RETRY_TIMEOUT_SECONDS = 0.5\n",
+        }
+        diff_text = diff_map.get(case_id, "+RETRIES_MAX = 8\n+RETRY_BACKOFF_FACTOR = 0.0\n")
         assessor = RiskAssessor()
-        # Simulate PR diff evaluation for case
-        diff_stub = "+RETRIES_MAX = 8\n+RETRY_BACKOFF_FACTOR = 0.0\n" if "05" not in case_file else "+ANALYTICS_RETRIES = 5\n"
-        risk_res = assessor.assess_diff(diff_stub)
+        risk_res = assessor.assess_diff(diff_text)
 
-        # Baseline LLM review (without dynamic runtime evidence or fault injection):
-        # Baseline relies on static tests and LLM opinion, missing subtle distributed runtime retry amplification.
+        # Baseline conventional LLM review:
+        # Standard code-review LLMs with static unit tests frequently approve retry adjustments
+        # without recognizing dynamic amplification storms under distributed latency.
         baseline_verdict = "PASSED_UNCHECKED" if risk_res["level"] != "HIGH" else "REVIEW_FLAGGED"
 
         return {

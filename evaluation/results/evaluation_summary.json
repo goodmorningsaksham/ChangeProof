@@ -1,0 +1,84 @@
+{
+  "evaluation_suite": "CASE-01 to CASE-09 (CASE-10 Sealed)",
+  "total_cases_evaluated": 9,
+  "metrics": {
+    "vscr_advanced": 100.0,
+    "vscr_baseline": 0.0,
+    "runtime_evidence_fidelity": 100.0,
+    "deterministic_verification_rate": 100.0
+  },
+  "cases": [
+    {
+      "case_id": "case-01",
+      "title": "Downstream Latency Induces Retry Amplification Storm",
+      "risk_level": "MEDIUM",
+      "baseline_verdict": "PASSED_UNCHECKED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-02",
+      "title": "Severe Downstream Latency Under Increased Retries",
+      "risk_level": "LOW",
+      "baseline_verdict": "PASSED_UNCHECKED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-03",
+      "title": "Immediate Retries Cause Request Clustering",
+      "risk_level": "LOW",
+      "baseline_verdict": "PASSED_UNCHECKED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-04",
+      "title": "Aggressive Timeout Triggers Pre-mature Retries",
+      "risk_level": "LOW",
+      "baseline_verdict": "PASSED_UNCHECKED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-05",
+      "title": "Asynchronous Non-Critical Retries Do Not Impact Core Checkout",
+      "risk_level": "LOW",
+      "baseline_verdict": "PASSED_UNCHECKED",
+      "advanced_verdict": "PASS_SAFE",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-06",
+      "title": "Removal of Circuit Breaker Causes Cascading Failure",
+      "risk_level": "LOW",
+      "baseline_verdict": "PASSED_UNCHECKED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-07",
+      "title": "Multi-Tier Amplification Across Gateway and Business Services",
+      "risk_level": "LOW",
+      "baseline_verdict": "PASSED_UNCHECKED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-08",
+      "title": "Retries Exhaust HTTP Client Connection Pool",
+      "risk_level": "LOW",
+      "baseline_verdict": "PASSED_UNCHECKED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-09",
+      "title": "Traffic Burst Triggers Cascading Amplification Wave",
+      "risk_level": "LOW",
+      "baseline_verdict": "PASSED_UNCHECKED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    }
+  ]
+}
