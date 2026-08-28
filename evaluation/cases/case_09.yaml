@@ -1,0 +1,45 @@
+# CASE-09: Sudden Traffic Burst Induces Cascading Amplification
+id: "case-09"
+version: "1.0"
+title: "Traffic Burst Triggers Cascading Amplification Wave"
+description: "Sudden 100 RPS burst saturates slow downstream payment service."
+
+target:
+  compose_file: "docker-compose.yml"
+  git_commit: "main"
+
+fault:
+  tool: "toxiproxy"
+  proxy: "payment-proxy"
+  admin_url: "http://localhost:8474"
+  toxic:
+    type: "latency"
+    attributes:
+      latency: 3000
+      jitter: 100
+
+workload:
+  tool: "k6"
+  script: "workloads/checkout_load.js"
+  duration: "45s"
+  vus: 30
+  rps_target: 100
+
+measurements:
+  prometheus_url: "http://localhost:9090"
+  scrape_interval_s: 1
+  metrics:
+    - name: "retry_count_total"
+      labels: { service: "checkout", target: "payment" }
+    - name: "http_errors_total"
+      labels: { service: "checkout" }
+
+assertions:
+  pre_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min > 400"
+      description: "Severe cascading amplification during peak surge"
+  post_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min < 60"
+      description: "Rate limiting and token bucket retry control surge"

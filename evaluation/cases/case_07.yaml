@@ -1,0 +1,45 @@
+# CASE-07: Compound Multi-Tier Retry Amplification
+id: "case-07"
+version: "1.0"
+title: "Multi-Tier Amplification Across Gateway and Business Services"
+description: "Frontend retries 3x while checkout retries 5x, generating 15x compound multiplication."
+
+target:
+  compose_file: "docker-compose.yml"
+  git_commit: "main"
+
+fault:
+  tool: "toxiproxy"
+  proxy: "payment-proxy"
+  admin_url: "http://localhost:8474"
+  toxic:
+    type: "latency"
+    attributes:
+      latency: 2500
+      jitter: 100
+
+workload:
+  tool: "k6"
+  script: "workloads/checkout_load.js"
+  duration: "60s"
+  vus: 15
+  rps_target: 40
+
+measurements:
+  prometheus_url: "http://localhost:9090"
+  scrape_interval_s: 1
+  metrics:
+    - name: "retry_count_total"
+      labels: { service: "checkout", target: "payment" }
+    - name: "http_errors_total"
+      labels: { service: "checkout" }
+
+assertions:
+  pre_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min > 300"
+      description: "Compound retry multiplication explosion"
+  post_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min < 50"
+      description: "Distributed retry budget limits cumulative multiplier"

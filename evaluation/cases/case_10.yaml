@@ -1,0 +1,6 @@
+# CASE-10: SEALED HOLDOUT CASE
+# WARNING: This case is SEALED per AGENTS.md §17.
+# Do not inspect, read, parse, or tune against this file until final formal evaluation.
+id: "case-10-holdout"
+status: "SEALED"
+note: "Sealed parameter matrix held for honest generalization testing."

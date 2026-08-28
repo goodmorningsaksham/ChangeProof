@@ -1,0 +1,45 @@
+# CASE-04: Reduced Timeout with Increased Retries
+id: "case-04"
+version: "1.0"
+title: "Aggressive Timeout Triggers Pre-mature Retries"
+description: "Checkout decreases timeout to 0.5s and increases retries, creating an artificial storm."
+
+target:
+  compose_file: "docker-compose.yml"
+  git_commit: "main"
+
+fault:
+  tool: "toxiproxy"
+  proxy: "payment-proxy"
+  admin_url: "http://localhost:8474"
+  toxic:
+    type: "latency"
+    attributes:
+      latency: 1500
+      jitter: 100
+
+workload:
+  tool: "k6"
+  script: "workloads/checkout_load.js"
+  duration: "45s"
+  vus: 10
+  rps_target: 60
+
+measurements:
+  prometheus_url: "http://localhost:9090"
+  scrape_interval_s: 1
+  metrics:
+    - name: "retry_count_total"
+      labels: { service: "checkout", target: "payment" }
+    - name: "http_errors_total"
+      labels: { service: "checkout" }
+
+assertions:
+  pre_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min > 220"
+      description: "Premature retry storm triggered by timeout cliff"
+  post_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min < 45"
+      description: "Restored timeout eliminates false-failure retries"

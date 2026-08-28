@@ -1,0 +1,45 @@
+# CASE-05: Non-Critical Path Retries (Negative Control)
+id: "case-05"
+version: "1.0"
+title: "Asynchronous Non-Critical Retries Do Not Impact Core Checkout"
+description: "Checkout increases retries for background telemetry tracking without affecting payment."
+
+target:
+  compose_file: "docker-compose.yml"
+  git_commit: "main"
+
+fault:
+  tool: "toxiproxy"
+  proxy: "payment-proxy"
+  admin_url: "http://localhost:8474"
+  toxic:
+    type: "latency"
+    attributes:
+      latency: 500
+      jitter: 50
+
+workload:
+  tool: "k6"
+  script: "workloads/checkout_load.js"
+  duration: "45s"
+  vus: 10
+  rps_target: 30
+
+measurements:
+  prometheus_url: "http://localhost:9090"
+  scrape_interval_s: 1
+  metrics:
+    - name: "retry_count_total"
+      labels: { service: "checkout", target: "payment" }
+    - name: "http_errors_total"
+      labels: { service: "checkout" }
+
+assertions:
+  pre_patch:
+    - metric: "http_errors_total"
+      condition: "< 5"
+      description: "Non-critical retries do not cause core checkout errors"
+  post_patch:
+    - metric: "http_errors_total"
+      condition: "< 5"
+      description: "Remains safe and healthy"

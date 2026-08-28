@@ -1,0 +1,45 @@
+# CASE-08: Retry Storm Inducing Connection Pool Exhaustion
+id: "case-08"
+version: "1.0"
+title: "Retries Exhaust HTTP Client Connection Pool"
+description: "High concurrency and aggressive retries starve available HTTP client sockets."
+
+target:
+  compose_file: "docker-compose.yml"
+  git_commit: "main"
+
+fault:
+  tool: "toxiproxy"
+  proxy: "payment-proxy"
+  admin_url: "http://localhost:8474"
+  toxic:
+    type: "latency"
+    attributes:
+      latency: 2000
+      jitter: 100
+
+workload:
+  tool: "k6"
+  script: "workloads/checkout_load.js"
+  duration: "45s"
+  vus: 25
+  rps_target: 80
+
+measurements:
+  prometheus_url: "http://localhost:9090"
+  scrape_interval_s: 1
+  metrics:
+    - name: "retry_count_total"
+      labels: { service: "checkout", target: "payment" }
+    - name: "http_errors_total"
+      labels: { service: "checkout" }
+
+assertions:
+  pre_patch:
+    - metric: "http_errors_total"
+      condition: "> 50"
+      description: "Socket starvation and connection pool exhaustion errors"
+  post_patch:
+    - metric: "http_errors_total"
+      condition: "< 5"
+      description: "Optimized connection pool and retries maintain throughput"

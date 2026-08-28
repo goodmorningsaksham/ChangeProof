@@ -1,0 +1,10 @@
+case_id,title,risk_level,baseline_verdict,advanced_verdict,remediation_verified
+case-01,Downstream Latency Induces Retry Amplification Storm,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
+case-02,Severe Downstream Latency Under Increased Retries,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
+case-03,Immediate Retries Cause Request Clustering,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
+case-04,Aggressive Timeout Triggers Pre-mature Retries,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
+case-05,Asynchronous Non-Critical Retries Do Not Impact Core Checkout,LOW,PASSED_UNCHECKED,PASS_SAFE,True
+case-06,Removal of Circuit Breaker Causes Cascading Failure,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
+case-07,Multi-Tier Amplification Across Gateway and Business Services,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
+case-08,Retries Exhaust HTTP Client Connection Pool,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
+case-09,Traffic Burst Triggers Cascading Amplification Wave,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True

@@ -1,0 +1,45 @@
+# CASE-06: Circuit Breaker Removal Under Persistent Latency
+id: "case-06"
+version: "1.0"
+title: "Removal of Circuit Breaker Causes Cascading Failure"
+description: "Checkout removes fail-fast circuit breaker mechanism under persistent 4000ms latency."
+
+target:
+  compose_file: "docker-compose.yml"
+  git_commit: "main"
+
+fault:
+  tool: "toxiproxy"
+  proxy: "payment-proxy"
+  admin_url: "http://localhost:8474"
+  toxic:
+    type: "latency"
+    attributes:
+      latency: 4000
+      jitter: 100
+
+workload:
+  tool: "k6"
+  script: "workloads/checkout_load.js"
+  duration: "45s"
+  vus: 10
+  rps_target: 50
+
+measurements:
+  prometheus_url: "http://localhost:9090"
+  scrape_interval_s: 1
+  metrics:
+    - name: "retry_count_total"
+      labels: { service: "checkout", target: "payment" }
+    - name: "http_errors_total"
+      labels: { service: "checkout" }
+
+assertions:
+  pre_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min > 200"
+      description: "Severe degradation without circuit breaker fast-fail"
+  post_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min < 30"
+      description: "Circuit breaker bounds load on payment service"

@@ -1,0 +1,45 @@
+# CASE-03: Removal of Exponential Backoff
+id: "case-03"
+version: "1.0"
+title: "Immediate Retries Cause Request Clustering"
+description: "Checkout removes exponential backoff, attempting immediate retries upon failure."
+
+target:
+  compose_file: "docker-compose.yml"
+  git_commit: "main"
+
+fault:
+  tool: "toxiproxy"
+  proxy: "payment-proxy"
+  admin_url: "http://localhost:8474"
+  toxic:
+    type: "latency"
+    attributes:
+      latency: 3000
+      jitter: 100
+
+workload:
+  tool: "k6"
+  script: "workloads/checkout_load.js"
+  duration: "45s"
+  vus: 10
+  rps_target: 40
+
+measurements:
+  prometheus_url: "http://localhost:9090"
+  scrape_interval_s: 1
+  metrics:
+    - name: "retry_count_total"
+      labels: { service: "checkout", target: "payment" }
+    - name: "http_errors_total"
+      labels: { service: "checkout" }
+
+assertions:
+  pre_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min > 180"
+      description: "Retry cluster spike visible due to zero backoff"
+  post_patch:
+    - metric: "retry_count_total"
+      condition: "rate_per_min < 50"
+      description: "Exponential backoff smooths retry distribution"
