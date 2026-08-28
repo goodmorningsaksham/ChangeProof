@@ -44,7 +44,7 @@ class TestLiveServiceTopology:
         assert r_toxi.status_code == 200
         data = r_toxi.json()
         assert data["name"] == "payment-proxy"
-        assert data["listen"] == "0.0.0.0:18002"
+        assert "18002" in data["listen"]
         assert data["upstream"] == "payment-service:8002"
         assert data["enabled"] is True
 

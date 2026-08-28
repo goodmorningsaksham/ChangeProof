@@ -3,6 +3,7 @@ import os
 import time
 import json
 import hashlib
+import subprocess
 import yaml
 from typing import Dict, Any
 from changeproof.toxiproxy_client import ToxiproxyClient
@@ -78,11 +79,27 @@ class ExperimentRunner:
 
             # Phase 3: Workload Generation
             workload_cfg = spec["workload"]
-            duration_s = int(workload_cfg.get("duration", "10s").replace("s", ""))
+            duration_s = int(workload_cfg.get("duration", "45s").replace("s", ""))
+            rps_target = workload_cfg.get("rps_target", 30)
+            vus = workload_cfg.get("vus", 10)
+            script_name = os.path.basename(workload_cfg.get("script", "checkout_load.js"))
 
-            # In production/docker, execute k6 or fallback HTTP traffic
-            # For demonstration & verification, drive traffic
-            time.sleep(min(duration_s, 5)) # Simulate/wait workload window
+            workloads_dir = os.path.abspath("workloads")
+            k6_cmd = [
+                "docker", "run", "--rm",
+                "--network", "proofchange_changeproof-net",
+                "-v", f"{workloads_dir}:/workloads",
+                "-e", f"RPS_TARGET={rps_target}",
+                "-e", f"DURATION={duration_s}s",
+                "-e", f"VUS={vus}",
+                "-e", "TARGET_URL=http://frontend-service:8000",
+                "grafana/k6:0.49.0", "run", f"/workloads/{script_name}"
+            ]
+            
+            k6_proc = subprocess.run(k6_cmd, capture_output=True, text=True)
+            k6_log_path = os.path.join(run_dir, "k6_output.log")
+            with open(k6_log_path, "w", encoding="utf-8") as f:
+                f.write(f"STDOUT:\n{k6_proc.stdout}\nSTDERR:\n{k6_proc.stderr}")
 
             end_time = time.time()
 

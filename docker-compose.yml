@@ -45,9 +45,6 @@ services:
     environment:
       - PORT=8001
       - PAYMENT_SERVICE_URL=http://toxiproxy:18002
-      - RETRIES_MAX=3
-      - RETRY_TIMEOUT_SECONDS=1.0
-      - RETRY_BACKOFF_FACTOR=0.5
     networks:
       - changeproof-net
     depends_on:

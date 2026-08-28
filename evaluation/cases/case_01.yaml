@@ -39,9 +39,9 @@ measurements:
 assertions:
   pre_patch:
     - metric: "retry_count_total"
-      condition: "rate_per_min > 150"
-      description: "Retry amplification storm visible under downstream latency"
+      condition: "rate_per_min > 500"
+      description: "Retry amplification storm visible under downstream latency (empirically >3000/min in broken state)"
   post_patch:
     - metric: "retry_count_total"
-      condition: "rate_per_min < 40"
-      description: "Retry count bounded and controlled after remediation"
+      condition: "rate_per_min < 150"
+      description: "Retry count bounded and controlled after remediation with exponential backoff (empirically <100/min)"

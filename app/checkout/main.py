@@ -43,6 +43,11 @@ HTTP_ERRORS_TOTAL = Counter(
     ["error_type"],
 )
 
+# Initialize metric labels so they appear immediately in Prometheus scrapes
+RETRY_COUNT_TOTAL.labels(service="checkout", target="payment").inc(0)
+RETRY_EXHAUSTED_TOTAL.labels(service="checkout", target="payment").inc(0)
+CHECKOUT_REQUESTS_TOTAL.labels(status="success").inc(0)
+
 class CheckoutRequest(BaseModel):
     order_id: str
     amount: float

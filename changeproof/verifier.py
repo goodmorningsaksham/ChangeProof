@@ -1,7 +1,7 @@
 """Deterministic assertion verifier for ChangeProof — Zero LLM calls."""
 import os
 import re
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 from typing import Dict, Any, List, Optional
 
 class VerificationResult:
@@ -17,28 +17,31 @@ class VerificationResult:
             "diff_table": self.diff_table,
         }
 
-def evaluate_condition(metric_series: pd.Series, condition_str: str) -> bool:
-    """Evaluates simple threshold conditions like 'rate_per_min > 50', '> 20', '< 5'."""
-    if metric_series.empty:
-        return False
+def compute_metric_aggregate(sub_df: pd.DataFrame, condition_str: str) -> float:
+    """Computes the appropriate metric aggregate (rate per min or mean)."""
+    if sub_df.empty:
+        return 0.0
+    val_s = sub_df["value"]
+    if "rate_per_min" in condition_str or "rate" in condition_str:
+        if len(sub_df) > 1 and "timestamp" in sub_df.columns:
+            t_min = float(sub_df["timestamp"].min())
+            t_max = float(sub_df["timestamp"].max())
+            duration_s = max(t_max - t_min, 1.0)
+            delta_val = max(float(val_s.max() - val_s.min()), 0.0)
+            return float((delta_val / duration_s) * 60.0)
+        else:
+            delta_val = float(val_s.iloc[-1] - val_s.iloc[0]) if len(val_s) > 1 else float(val_s.iloc[-1])
+            return delta_val
+    return float(val_s.mean())
 
-    # Extract comparison operator and number
+def evaluate_condition_val(agg_val: float, condition_str: str) -> bool:
+    """Evaluates comparison operator on aggregate value."""
     match = re.search(r'([><=]+)\s*([\d.]+)', condition_str)
     if not match:
         return False
-
     op, threshold_str = match.groups()
     threshold = float(threshold_str)
     
-    # Calculate aggregate or rate
-    # If checking rate_per_min, calculate delta or mean rate
-    if "rate_per_min" in condition_str or "rate" in condition_str:
-        # Rate in events/min = (max - min) / duration_min or sum
-        val_diff = metric_series.max() - metric_series.min() if len(metric_series) > 1 else metric_series.iloc[-1]
-        agg_val = float(val_diff)
-    else:
-        agg_val = float(metric_series.mean())
-
     if op == ">":
         return agg_val > threshold
     elif op == ">=":
@@ -50,6 +53,14 @@ def evaluate_condition(metric_series: pd.Series, condition_str: str) -> bool:
     elif op == "==":
         return abs(agg_val - threshold) < 1e-3
     return False
+
+def evaluate_condition(metric_series: pd.Series, condition_str: str) -> bool:
+    """Backward-compatible series evaluation."""
+    if metric_series.empty:
+        return False
+    df = pd.DataFrame({"value": metric_series})
+    agg_val = compute_metric_aggregate(df, condition_str)
+    return evaluate_condition_val(agg_val, condition_str)
 
 def verify(pre_metrics_csv: str, post_metrics_csv: str, assertions: Dict[str, Any]) -> VerificationResult:
     """Sole deterministic authority evaluating pre and post experiment runs."""
@@ -69,13 +80,14 @@ def verify(pre_metrics_csv: str, post_metrics_csv: str, assertions: Dict[str, An
     for a in pre_assertions:
         m_name = a["metric"]
         cond = a["condition"]
-        sub_s = pre_df[pre_df["metric_name"] == m_name]["value"] if not pre_df.empty else pd.Series([], dtype=float)
-        passed_cond = evaluate_condition(sub_s, cond)
+        sub_df = pre_df[pre_df["metric_name"] == m_name] if not pre_df.empty else pd.DataFrame()
+        agg_val = compute_metric_aggregate(sub_df, cond)
+        passed_cond = evaluate_condition_val(agg_val, cond)
         diff_table.append({
             "metric": m_name,
             "phase": "pre_patch",
             "condition": cond,
-            "observed_value": float(sub_s.mean()) if not sub_s.empty else 0.0,
+            "observed_value": round(agg_val, 2),
             "condition_met": passed_cond,
         })
         if not passed_cond:
@@ -94,13 +106,14 @@ def verify(pre_metrics_csv: str, post_metrics_csv: str, assertions: Dict[str, An
     for a in post_assertions:
         m_name = a["metric"]
         cond = a["condition"]
-        sub_s = post_df[post_df["metric_name"] == m_name]["value"] if not post_df.empty else pd.Series([], dtype=float)
-        passed_cond = evaluate_condition(sub_s, cond)
+        sub_df = post_df[post_df["metric_name"] == m_name] if not post_df.empty else pd.DataFrame()
+        agg_val = compute_metric_aggregate(sub_df, cond)
+        passed_cond = evaluate_condition_val(agg_val, cond)
         diff_table.append({
             "metric": m_name,
             "phase": "post_patch",
             "condition": cond,
-            "observed_value": float(sub_s.mean()) if not sub_s.empty else 0.0,
+            "observed_value": round(agg_val, 2),
             "condition_met": passed_cond,
         })
         if not passed_cond:

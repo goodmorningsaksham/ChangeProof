@@ -10,8 +10,14 @@ from typing import Dict, Any
 from changeproof.experiment_runner import ExperimentRunner
 from changeproof.verifier import verify
 
-def replay_capsule(capsule_zip_path: str, state: str = "base") -> Dict[str, Any]:
-    """Extracts capsule, verifies spec_sha256, executes experiment, and deterministically verifies outcome."""
+def replay_capsule(capsule_zip_path: str, mode: str = "evidence") -> Dict[str, Any]:
+    """Replays a reproduction capsule.
+    
+    Modes:
+    - 'evidence': Deterministic verification of archived runtime metrics against immutable spec.
+    - 'live': Genuine clean-environment execution: runs live BASE experiment, applies patch,
+              runs live PATCHED experiment, captures fresh metrics, and evaluates verifier.
+    """
     if not os.path.exists(capsule_zip_path):
         raise FileNotFoundError(f"Capsule zip not found: {capsule_zip_path}")
 
@@ -32,7 +38,7 @@ def replay_capsule(capsule_zip_path: str, state: str = "base") -> Dict[str, Any]
             spec_content = f.read()
             spec = yaml.safe_load(spec_content)
 
-        # Integrity check: verify spec SHA256
+        # 1. Spec Immutability Check: verify SHA256 matches manifest
         current_sha256 = hashlib.sha256(spec_content.encode("utf-8")).hexdigest()
         if manifest.get("spec_sha256") and manifest["spec_sha256"] != "none":
             if current_sha256 != manifest["spec_sha256"]:
@@ -41,31 +47,59 @@ def replay_capsule(capsule_zip_path: str, state: str = "base") -> Dict[str, Any]
                     "reason": f"Spec hash mismatch: expected {manifest['spec_sha256']}, got {current_sha256}",
                 }
 
-        # Run replay experiment
-        runner = ExperimentRunner(runs_dir=os.path.join(tmp_dir, "replay_runs"))
-        run_res = runner.run(spec_path, state=state)
+        # 2. Replay Execution
+        if mode == "live":
+            # Live runtime reconstruction
+            runner = ExperimentRunner(runs_dir=os.path.join(tmp_dir, "replay_runs"))
+            
+            # Run BASE experiment
+            base_run = runner.run(spec_path, state="base")
+            if base_run.get("status") != "COMPLETED":
+                return {"replay_status": "FAILED", "stage": "base_run", "error": base_run.get("error")}
+            
+            # Run PATCHED experiment
+            patched_run = runner.run(spec_path, state="patched")
+            if patched_run.get("status") != "COMPLETED":
+                return {"replay_status": "FAILED", "stage": "patched_run", "error": patched_run.get("error")}
 
-        # In a complete replay, evaluate verifier assertions
-        pre_metrics = os.path.join(tmp_dir, "metrics_pre.csv")
-        post_metrics = os.path.join(tmp_dir, "metrics_post.csv")
-
-        if os.path.exists(pre_metrics) and os.path.exists(post_metrics):
-            ver_res = verify(pre_metrics, post_metrics, spec.get("assertions", {}))
+            # Deterministic verification on fresh live metrics
+            ver_res = verify(base_run["metrics_csv_path"], patched_run["metrics_csv_path"], spec.get("assertions", {}))
             return {
+                "replay_mode": "live_reproduction",
                 "replay_status": "COMPLETED",
                 "spec_verified": True,
                 "verification": ver_res.to_dict(),
             }
+        else:
+            # Evidence verification mode: check archived metrics against spec contract
+            pre_metrics = os.path.join(tmp_dir, "metrics_pre.csv")
+            if not os.path.exists(pre_metrics):
+                pre_metrics = os.path.join(tmp_dir, "metrics_base.csv")
 
-        return {
-            "replay_status": run_res.get("status"),
-            "spec_verified": True,
-            "run_result": run_res,
-        }
+            post_metrics = os.path.join(tmp_dir, "metrics_post.csv")
+            if not os.path.exists(post_metrics):
+                post_metrics = os.path.join(tmp_dir, "metrics_patched.csv")
+
+            if os.path.exists(pre_metrics) and os.path.exists(post_metrics):
+                ver_res = verify(pre_metrics, post_metrics, spec.get("assertions", {}))
+                return {
+                    "replay_mode": "evidence_verification",
+                    "replay_status": "COMPLETED",
+                    "spec_verified": True,
+                    "verification": ver_res.to_dict(),
+                }
+
+            return {
+                "replay_mode": "evidence_verification",
+                "replay_status": "INCONCLUSIVE",
+                "reason": "Capsule does not contain metrics CSVs for verification",
+            }
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python -m changeproof.replay <capsule.zip>")
+        print("Usage: python -m changeproof.replay <capsule.zip> [--live]")
         sys.exit(1)
-    res = replay_capsule(sys.argv[1])
+    
+    live_flag = "--live" in sys.argv
+    res = replay_capsule(sys.argv[1], mode="live" if live_flag else "evidence")
     print(json.dumps(res, indent=2))

@@ -51,6 +51,8 @@ class CapsulePackager:
             if os.path.exists(run_dir):
                 for root, _, files in os.walk(run_dir):
                     for file in files:
+                        if file in ("manifest.json", "patch.diff"):
+                            continue
                         full_path = os.path.join(root, file)
                         rel_path = os.path.relpath(full_path, run_dir)
                         z.write(full_path, arcname=rel_path)
