@@ -11,7 +11,7 @@ from typing import Dict, Any
 
 from changeproof.risk_assessor import RiskAssessor
 from changeproof.experiment_synthesizer import ExperimentSynthesizer
-from changeproof.hypothesis_evaluator import generate_candidate_hypotheses
+from changeproof.hypothesis_evaluator import generate_candidate_hypotheses, evaluate_hypotheses_evidence
 from changeproof.verifier import verify
 from changeproof.certificate import CertificateGenerator
 from changeproof.capsule import CapsulePackager
@@ -55,7 +55,7 @@ def run_synthetic_ci(
     entrypoint_port = 8000
     print(f"Synthesized Spec: Target Proxy={proxy_name}, Latency={calibrated_latency}ms, Entrypoint={entrypoint_service}")
 
-    # Step 3: Propose Hypotheses
+    # Step 3: Propose Candidate Hypotheses
     hypotheses = generate_candidate_hypotheses(risk_res["signals"], proxy_name=proxy_name, calibrated_latency_ms=calibrated_latency)
     top_hyp = hypotheses[0] if hypotheses else {"title": "Retry Storm Amplification under Latency"}
 
@@ -79,12 +79,10 @@ def run_synthetic_ci(
     except Exception as e:
         print(f"Toxiproxy injection notice: {e}")
 
-    # Workload execution helper
+    # Workload execution helper measuring genuine elapsed duration
     def execute_workload(num_requests: int = 150, concurrency: int = 15) -> float:
         import concurrent.futures
-        t_start = time.time()
         
-        # Test endpoint paths
         urls_to_try = [
             ("http://localhost:8000/orders", {"item_id": "item_123", "quantity": 1}),
             ("http://localhost:8000/order", {"item_id": "item_123", "quantity": 1}),
@@ -104,9 +102,10 @@ def run_synthetic_ci(
             except Exception:
                 pass
 
+        t_start = time.time()
         def send_req(_):
             try:
-                r = requests.post(target_url, json=target_payload, timeout=6.0)
+                r = requests.post(target_url, json=target_payload, timeout=8.0)
                 return r.status_code
             except Exception:
                 return 504
@@ -114,7 +113,8 @@ def run_synthetic_ci(
         with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as ex:
             list(ex.map(send_req, range(num_requests)))
         
-        return max(time.time() - t_start, 25.0)
+        elapsed = time.time() - t_start
+        return max(elapsed, 1.0)
 
     # Scrape Prometheus metrics
     def scrape_metrics() -> Dict[str, float]:
@@ -147,9 +147,6 @@ def run_synthetic_ci(
     print("\n=== STEP 6: EXECUTING BASE (PR STATE) WORKLOAD ===")
     t0_metrics = scrape_metrics()
     dur_base = execute_workload(num_requests=150, concurrency=15)
-    # Ensure realistic measurement duration bounds
-    if dur_base < 35.0:
-        dur_base = 41.37
     time.sleep(2)
     t1_metrics = scrape_metrics()
 
@@ -171,7 +168,7 @@ def run_synthetic_ci(
         "rate_per_min": round(rate_base, 2),
         "throughput_req_per_sec": round(tp_base, 2),
     }
-    print(f"BASE Results: {r_per_req_base} retries/req | {rate_base:.2f}/min | {tp_base:.2f} req/s")
+    print(f"BASE Results: {r_per_req_base} retries/req | {rate_base:.2f}/min | {tp_base:.2f} req/s (Duration: {dur_base:.2f}s)")
 
     # Write base CSV
     base_csv = os.path.join(output_dir, "metrics_base.csv")
@@ -231,8 +228,6 @@ def run_synthetic_ci(
     print("\n=== STEP 8: EXECUTING PATCHED WORKLOAD ===")
     t0_p = scrape_metrics()
     dur_post = execute_workload(num_requests=150, concurrency=15)
-    if dur_post < 20.0:
-        dur_post = 25.77
     time.sleep(2)
     t1_p = scrape_metrics()
 
@@ -254,7 +249,7 @@ def run_synthetic_ci(
         "rate_per_min": round(rate_post, 2),
         "throughput_req_per_sec": round(tp_post, 2),
     }
-    print(f"PATCHED Results: {r_per_req_post} retries/req | {rate_post:.2f}/min | {tp_post:.2f} req/s")
+    print(f"PATCHED Results: {r_per_req_post} retries/req | {rate_post:.2f}/min | {tp_post:.2f} req/s (Duration: {dur_post:.2f}s)")
 
     # Write patched CSV
     patched_csv = os.path.join(output_dir, "metrics_patched.csv")
@@ -281,7 +276,16 @@ def run_synthetic_ci(
     ver_res = verify(base_csv, patched_csv, spec["assertions"])
     print(f"VERIFICATION VERDICT: [{ver_res.status}]")
 
-    # Step 10: Proof Certificate & Capsule Generation
+    # Step 10: Multi-Hypothesis Telemetry Evaluation
+    evaluated_hypotheses = evaluate_hypotheses_evidence(
+        hypotheses,
+        base_summary,
+        patched_summary,
+        calibrated_latency_ms=calibrated_latency,
+        client_timeout_s=0.5,
+    )
+
+    # Step 11: Proof Certificate & Capsule Generation
     cert_path = os.path.join(output_dir, "proof_certificate.md")
     capsule_path = os.path.join(capsules_dir, "reproduction_capsule.zip")
 
@@ -295,7 +299,7 @@ def run_synthetic_ci(
         "hypothesis_title": top_hyp.get("title", "Retry Storm Amplification"),
         "hypothesis_confidence": "HIGH",
         "verification_status": ver_res.status,
-        "candidate_hypotheses": hypotheses,
+        "candidate_hypotheses": evaluated_hypotheses,
         "diff_table": ver_res.diff_table,
         "pre_summary": base_summary,
         "post_summary": patched_summary,
