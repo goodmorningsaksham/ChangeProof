@@ -68,6 +68,13 @@ def _load_run_context(path_str: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     else:
         df = pd.DataFrame()
 
+    # Extract state-specific sub-dictionary if manifest is multi-phase
+    filename = os.path.basename(csv_path).lower()
+    if ("base" in filename or "pre" in filename) and ("base" in manifest or "pre" in manifest or "pre_run" in manifest):
+        manifest = manifest.get("base") or manifest.get("pre") or manifest.get("pre_run") or manifest
+    elif ("patch" in filename or "post" in filename) and ("patched" in manifest or "post" in manifest or "post_run" in manifest):
+        manifest = manifest.get("patched") or manifest.get("post") or manifest.get("post_run") or manifest
+
     return df, manifest
 
 

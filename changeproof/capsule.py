@@ -34,6 +34,15 @@ class CapsulePackager:
         spec_sha256 = self.sha256_file(spec_file) if os.path.exists(spec_file) else "none"
         patch_sha256 = self.sha256_file(patch_diff_path) if patch_diff_path and os.path.exists(patch_diff_path) else "none"
 
+        run_manifest = {}
+        run_manifest_path = os.path.join(run_dir, "manifest.json")
+        if os.path.exists(run_manifest_path):
+            try:
+                with open(run_manifest_path, "r", encoding="utf-8") as f:
+                    run_manifest = json.load(f)
+            except Exception:
+                pass
+
         manifest = {
             "version": "1.0",
             "experiment_id": experiment_id,
@@ -42,6 +51,10 @@ class CapsulePackager:
             "patch_sha256": patch_sha256,
             "packaged_at": os.path.getmtime(run_dir) if os.path.exists(run_dir) else 0,
         }
+        # Preserve run metrics, ratios, durations, and rates in capsule manifest
+        manifest.update(run_manifest)
+        manifest["spec_sha256"] = spec_sha256
+        manifest["patch_sha256"] = patch_sha256
 
         with zipfile.ZipFile(capsule_path, "w", zipfile.ZIP_DEFLATED) as z:
             # Write capsule manifest
