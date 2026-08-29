@@ -116,7 +116,18 @@ def extract_metric_value(metric_name: str, condition_str: str, df: pd.DataFrame,
             return float(len(df) / dur)
         return 0.0
 
-    # 4. Standard DataFrame / Counter metric
+    # 4. Rate per min (prioritize authoritative direct/full-duration rate from manifest if present)
+    if "rate_per_min" in condition_str or metric_name == "rate_per_min":
+        if "rate_per_min_direct" in manifest:
+            return float(manifest["rate_per_min_direct"])
+        if "rate_per_min_absolute" in manifest:
+            return float(manifest["rate_per_min_absolute"])
+        delta_retries = manifest.get("delta_retries_direct") or manifest.get("delta_retries")
+        duration = manifest.get("experiment_duration_s") or manifest.get("duration_seconds")
+        if delta_retries is not None and duration is not None and float(duration) > 0:
+            return float(float(delta_retries) / float(duration) * 60.0)
+
+    # 5. Standard DataFrame / Counter metric
     if not df.empty:
         sub_df = df[df["metric_name"] == metric_name] if "metric_name" in df.columns else df
         if not sub_df.empty:
