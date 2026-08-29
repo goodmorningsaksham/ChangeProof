@@ -93,6 +93,28 @@ class ExperimentSynthesizer:
             f"Could not resolve changed file {changed_files} to any service in {self.compose_path}"
         )
 
+    def resolve_changed_file(self, pr_diff: str, changed_service: str) -> str:
+        """Resolves the exact file path modified in the changed service."""
+        for line in pr_diff.splitlines():
+            if line.startswith("--- a/") or line.startswith("+++ b/"):
+                path = line.split("/", 1)[-1].strip()
+                if os.path.exists(path):
+                    return path
+                clean_path = re.sub(r"^[ab]/", "", path)
+                if os.path.exists(clean_path):
+                    return clean_path
+
+        s_clean = _clean_service_name(changed_service)
+        candidates = [
+            f"app/{s_clean}/main.py",
+            f"app/{changed_service}/main.py",
+            f"{s_clean}/main.py",
+            f"src/{s_clean}/main.py",
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return f"app/{s_clean}/main.py"
     def resolve_downstream_dependency(
         self,
         service_name: str,
@@ -292,6 +314,38 @@ class ExperimentSynthesizer:
 
         return entrypoints[0] if entrypoints else app_services[0]
 
+    def resolve_entrypoint_route(self, entrypoint_service: str, compose_data: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        """Resolves the active POST entrypoint route and payload from source route decorators."""
+        ep_clean = _clean_service_name(entrypoint_service)
+        source_paths = [
+            f"app/{ep_clean}/main.py",
+            f"app/{entrypoint_service}/main.py",
+            f"{ep_clean}/main.py",
+            f"src/{ep_clean}/main.py",
+        ]
+        
+        found_route = "/orders"
+        found_payload: Dict[str, Any] = {"item_id": "item_123", "quantity": 1}
+
+        for p in source_paths:
+            if os.path.exists(p):
+                with open(p, "r", encoding="utf-8") as f:
+                    content = f.read()
+                
+                routes = re.findall(r'@app\.post\(\s*["\']([^"\']+)["\']', content)
+                if routes:
+                    biz_routes = [r for r in routes if r not in ("/health", "/metrics")]
+                    if biz_routes:
+                        found_route = biz_routes[0]
+                        if "order" in found_route or "item" in found_route:
+                            found_payload = {"item_id": "item_123", "quantity": 1}
+                        elif "checkout" in found_route:
+                            found_payload = {"order_id": "ord_123", "amount": 100.0, "currency": "USD"}
+                        elif "reserve" in found_route:
+                            found_payload = {"item_id": "item_123", "quantity": 1}
+                break
+
+        return found_route, found_payload
     def synthesize(
         self,
         pr_diff: str,
@@ -403,4 +457,5 @@ class ExperimentSynthesizer:
         with open(output_path, "w", encoding="utf-8") as f:
             yaml.dump(spec, f, sort_keys=False)
         return spec
+
 

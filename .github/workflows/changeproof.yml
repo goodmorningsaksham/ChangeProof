@@ -1,4 +1,4 @@
-name: ChangeProof Reliability Gate
+﻿name: ChangeProof Reliability Gate
 
 on:
   pull_request:
@@ -47,7 +47,7 @@ jobs:
       - name: Run ChangeProof CI Pipeline
         id: changeproof_pipeline
         run: |
-          python -m changeproof.ci_pipeline \
+          python -m changeproof.cli_synth_verify \
             --diff pr.diff \
             --commit "${{ github.event.pull_request.head.sha || github.sha }}" \
             --output-dir "runs/ci_run"
@@ -74,7 +74,7 @@ jobs:
               let certContent = fs.readFileSync(path, 'utf8');
               
               // Append artifact and replay instruction footer
-              const footer = `\n\n---\n### 📦 Artifact Reference\n- **Capsule Artifact**: Download \`changeproof-reproduction-capsule\` from the Workflow Run Summary.\n- **Replay Verification**:\n  \`\`\`bash\n  python changeproof/replay.py capsules/case-01.zip\n  \`\`\``;
+              const footer = `\n\n---\n### ðŸ“¦ Artifact Reference\n- **Capsule Artifact**: Download \`changeproof-reproduction-capsule\` from the Workflow Run Summary.\n- **Replay Verification**:\n  \`\`\`bash\n  python changeproof/replay.py capsules/case-01.zip\n  \`\`\``;
               
               const body = certContent + footer;
               const issueNumber = context.issue.number || 1;
@@ -86,3 +86,4 @@ jobs:
                 body: body
               });
             }
+
