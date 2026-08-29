@@ -87,9 +87,11 @@ def read_direct_metrics(url: str = "http://localhost:8001/metrics") -> Dict[str,
         res = httpx.get(url, timeout=3.0)
         if res.status_code == 200:
             for line in res.text.splitlines():
+                if line.startswith("#"):
+                    continue
                 if line.startswith("checkout_retries_total"):
                     try:
-                        metrics["retry_count"] = float(line.split()[-1])
+                        metrics["retry_count"] += float(line.split()[-1])
                     except Exception:
                         pass
                 elif line.startswith("checkout_requests_total"):
@@ -156,11 +158,11 @@ def run_live_phase(
     pre_m = read_direct_metrics("http://localhost:8001/metrics")
     print(f"Pre-workload counter snapshot: {pre_m}")
 
-    # 3. Execute live workload
+    # 3. Execute live workload against frontend gateway
     t_start = time.time()
     wl_res = asyncio.run(
         run_live_http_workload(
-            "http://localhost:8000/order",
+            "http://localhost:8000/orders",
             total_requests=total_requests,
             concurrency=concurrency,
             timeout_s=6.0,
@@ -187,20 +189,35 @@ def run_live_phase(
     csv_name = f"metrics_{state_name}.csv"
     csv_path = os.path.join(output_dir, csv_name)
     with open(csv_path, "w", encoding="utf-8") as f:
-        f.write("timestamp,metric,value\n")
-        f.write(f"{int(t_start)},checkout_retries_total,{pre_m['retry_count']}\n")
-        f.write(f"{int(t_end)},checkout_retries_total,{post_m['retry_count']}\n")
+        f.write("timestamp,metric_name,value\n")
+        f.write(f"{int(t_start)},retry_count_total,{pre_m['retry_count']}\n")
+        f.write(f"{int(t_end)},retry_count_total,{post_m['retry_count']}\n")
+        f.write(f"{int(t_start)},checkout_requests_total,{pre_m['checkout_requests']}\n")
+        f.write(f"{int(t_end)},checkout_requests_total,{post_m['checkout_requests']}\n")
 
     summary = {
         "phase": state_name,
         "duration_s": round(phase_duration, 2),
+        "experiment_duration_s": round(phase_duration, 2),
         "total_requests": requests_counted,
+        "delta_requests": requests_counted,
+        "delta_requests_direct": requests_counted,
         "retries_counted": retries_counted,
+        "delta_retries": retries_counted,
+        "delta_retries_direct": retries_counted,
         "retries_per_request": retries_per_req,
+        "retry_to_request_ratio": retries_per_req,
         "rate_per_min": rate_per_min,
+        "rate_per_min_direct": rate_per_min,
         "throughput_req_per_sec": throughput,
         "metrics_csv": csv_path,
     }
+    
+    # Write individual phase manifest
+    phase_manifest_path = os.path.join(output_dir, f"manifest_{state_name}.json")
+    with open(phase_manifest_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
     print(f"Phase {state_name} summary: {summary}")
     return summary
 
