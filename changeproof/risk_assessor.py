@@ -17,20 +17,18 @@ class RiskAssessor:
 
         # Signal 1: Retry count increase on added lines only.
         # Excludes '+++ b/...' file header lines via negative lookahead (?!\+).
-        if re.search(r'^\+(?!\+).*RETRIES_MAX\s*=\s*([4-9]|\d{2,})', diff_text, re.MULTILINE) or \
-           re.search(r'^\+(?!\+).*max_retries\s*=\s*([4-9]|\d{2,})', diff_text, re.MULTILINE):
+        if re.search(r'^\+(?!\+).*(?:RETRIES_MAX|max_retries)\s*=.*(["\']?([4-9]|\d{2,})["\']?)', diff_text, re.MULTILINE):
             score += 30
             signals_detected.append("Aggressive retry count increase (max_retries >= 4)")
 
         # Signal 2: Backoff removal on added lines only.
-        if re.search(r'^\+(?!\+).*RETRY_BACKOFF_FACTOR\s*=\s*0(\.0)?', diff_text, re.MULTILINE) or \
+        if re.search(r'^\+(?!\+).*(?:RETRY_BACKOFF_FACTOR|backoff)\s*=.*(["\']?0(\.0)?["\']?)', diff_text, re.MULTILINE) or \
            re.search(r'^\+(?!\+).*wait_fixed\(0\)', diff_text, re.MULTILINE):
             score += 20
             signals_detected.append("Removal of backoff / immediate retry execution")
 
         # Signal 3: Aggressive timeout reduction on added lines only.
-        if re.search(r'^\+(?!\+).*RETRY_TIMEOUT_SECONDS\s*=\s*0\.[1-9]', diff_text, re.MULTILINE) or \
-           re.search(r'^\+(?!\+).*timeout\s*=\s*0\.[1-9]', diff_text, re.MULTILINE):
+        if re.search(r'^\+(?!\+).*(?:RETRY_TIMEOUT_SECONDS|timeout)\s*=.*(["\']?0\.[1-9]["\']?)', diff_text, re.MULTILINE):
             score += 20
             signals_detected.append("Aggressive timeout reduction (timeout < 1.0s)")
 
