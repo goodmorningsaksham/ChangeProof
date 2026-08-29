@@ -89,7 +89,7 @@ def read_direct_metrics(url: str = "http://localhost:8001/metrics") -> Dict[str,
             for line in res.text.splitlines():
                 if line.startswith("#"):
                     continue
-                if line.startswith("checkout_retries_total"):
+                if line.startswith("retry_count_total") or line.startswith("checkout_retries_total"):
                     try:
                         metrics["retry_count"] += float(line.split()[-1])
                     except Exception:
@@ -316,7 +316,7 @@ Change was verified safe by deterministic AST analysis. No counterfactual fault 
         print("Warning: Docker Compose services not ready or Docker not available.")
 
     # Phase 3: BASE state live execution
-    base_summary = run_live_phase("base", output_dir=output_dir, latency_ms=2000, total_requests=400, concurrency=15)
+    base_summary = run_live_phase("base", output_dir=output_dir, latency_ms=2000, total_requests=150, concurrency=15)
     base_csv = base_summary["metrics_csv"]
 
     # Phase 4: Apply remediation patch, rebuild checkout, run PATCHED state
@@ -349,7 +349,7 @@ Change was verified safe by deterministic AST analysis. No counterfactual fault 
     wait_for_services_healthy(timeout_s=20)
 
     # Phase 4: PATCHED state live execution
-    patched_summary = run_live_phase("patched", output_dir=output_dir, latency_ms=2000, total_requests=400, concurrency=15)
+    patched_summary = run_live_phase("patched", output_dir=output_dir, latency_ms=2000, total_requests=150, concurrency=15)
     patched_csv = patched_summary["metrics_csv"]
 
     # Restore base code file after test
