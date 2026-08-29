@@ -112,8 +112,8 @@ def run_synthetic_ci(
     num_workload_requests = int(spec["workload"].get("num_requests", int(workload_rps * workload_dur_s)))
     workload_concurrency = workload_vus
 
-    changed_service = spec["target"]["changed_service"]
-    target_file = spec["target"]["changed_file"]
+    changed_service = spec.get("target", {}).get("changed_service") or "checkout-service"
+    target_file = spec.get("target", {}).get("changed_file") or ("app/inventory/main.py" if os.path.exists("app/inventory/main.py") else "app/checkout/main.py")
     changed_short = _clean_service_name(changed_service)
 
     commit_tag = git_commit[:8] if git_commit not in ("HEAD", "main", "") else str(int(time.time()))
@@ -419,6 +419,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
