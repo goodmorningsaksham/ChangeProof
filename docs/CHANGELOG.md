@@ -93,3 +93,22 @@
   - Re-generated comparative reports showing honest 3/10 executed coverage (7/10 `NOT_EXECUTED`).
 - **Decision / Learning**: 
   Confirmed system generalization across independent compound latency/concurrency holdout parameters.
+
+---
+
+### [2026-08-29] GitHub Actions CI Automation & Live Container Execution
+- **Commit**: `7b3ec20`
+- **Stage**: CI/CD Integration & Live Runner Verification
+- **What Was Tried / Why**: 
+  Configured GitHub Actions workflow (`.github/workflows/changeproof.yml`) to automatically assess PR diffs, provision live Docker Compose stacks in runner VMs, inject network faults via Toxiproxy, execute real concurrent workloads against running FastAPI services, verify deterministic metrics, and post Proof Certificates as PR comments with capsule attachments.
+- **Evidence / Result**: 
+  - Audit revealed initial CI runs fell back to pre-packaged archive extraction when local run directories were absent.
+  - Rebuilt `changeproof/ci_pipeline.py` to drive real live Docker containers (`docker compose up -d --build`), direct Toxiproxy REST fault injection (`payment-proxy` 2000ms latency), real concurrent async HTTP workloads, and boundary Prometheus metric extraction.
+  - Live execution on PR #1 (workflow run `33227355365`) completed in 2m8s with genuinely measured telemetry:
+    - **Pre-Patch (Broken)**: 150 requests, 1,050 retries -> **7.000 retries/req** (amplification reproduced, satisfying `> 2.0`), 1520.64 retries/min, 3.62 req/s.
+    - **Post-Patch (Remediated)**: 150 requests, 150 retries -> **1.000 retry/req** (controlled, satisfying `<= 1.1`), 349.66 retries/min, 5.83 req/s.
+    - **Deterministic Verifier**: **`PASS`**.
+    - PR comment and capsule artifact (`changeproof-reproduction-capsule`) posted live on PR #1.
+  - Difference between PR #1's 7.0 retries/req and manual CASE-01's 4.531 retries/req was empirically confirmed: PR #1's diff set `RETRY_TIMEOUT_SECONDS=0.5` (vs. 1.0s), enabling all 7 retries (8 attempts) to finish inside the 5.0s gateway timeout before truncation.
+- **Decision / Learning**: 
+  CI pipelines must never fall back to static/cached runs in testing workflows; genuine container orchestration and network fault injection in GitHub Actions runners proves that ChangeProof operates autonomously end-to-end.
