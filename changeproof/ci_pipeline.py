@@ -1,16 +1,19 @@
-"""ChangeProof CI Pipeline Orchestrator for GitHub Actions."""
+"""ChangeProof CI Pipeline Orchestrator with Real Container Execution."""
 import os
 import sys
 import json
 import time
+import asyncio
 import subprocess
 import argparse
 from typing import Dict, Any, Optional
+import httpx
+import yaml
 from changeproof.risk_assessor import RiskAssessor
 from changeproof.verifier import verify
 from changeproof.certificate import CertificateGenerator
 from changeproof.capsule import CapsulePackager
-
+from changeproof.toxiproxy_client import ToxiproxyClient
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -32,6 +35,174 @@ def append_step_summary(markdown_text: str):
         print(markdown_text)
     except UnicodeEncodeError:
         sys.stdout.buffer.write(markdown_text.encode("utf-8", errors="replace") + b"\n")
+
+
+async def run_live_http_workload(url: str, total_requests: int = 500, concurrency: int = 15, timeout_s: float = 8.0) -> Dict[str, Any]:
+    """Generates concurrent HTTP load against target URL and measures responses."""
+    print(f"Starting live workload: {total_requests} requests, concurrency={concurrency} -> {url}")
+    t0 = time.time()
+    successes = 0
+    failures = 0
+    latencies = []
+
+    sem = asyncio.Semaphore(concurrency)
+    payload = {"item_id": "item_123", "amount": 99.99, "user_id": "u_live_ci"}
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
+        async def send_req(i: int):
+            nonlocal successes, failures
+            async with sem:
+                req_t0 = time.time()
+                try:
+                    res = await client.post(url, json=payload)
+                    lat = time.time() - req_t0
+                    latencies.append(lat)
+                    if res.status_code == 200:
+                        successes += 1
+                    else:
+                        failures += 1
+                except Exception:
+                    lat = time.time() - req_t0
+                    latencies.append(lat)
+                    failures += 1
+
+        tasks = [send_req(i) for i in range(total_requests)]
+        await asyncio.gather(*tasks)
+
+    duration = max(0.001, time.time() - t0)
+    print(f"Live workload completed: {total_requests} requests in {duration:.2f}s ({total_requests/duration:.2f} req/s). Success: {successes}, Failures: {failures}")
+    return {
+        "total_requests": total_requests,
+        "successes": successes,
+        "failures": failures,
+        "duration_s": duration,
+        "avg_latency_s": sum(latencies) / len(latencies) if latencies else 0.0,
+    }
+
+
+def read_direct_metrics(url: str = "http://localhost:8001/metrics") -> Dict[str, float]:
+    """Reads raw Prometheus text exposition metrics directly from service."""
+    metrics = {"retry_count": 0.0, "checkout_requests": 0.0}
+    try:
+        res = httpx.get(url, timeout=3.0)
+        if res.status_code == 200:
+            for line in res.text.splitlines():
+                if line.startswith("checkout_retries_total"):
+                    try:
+                        metrics["retry_count"] = float(line.split()[-1])
+                    except Exception:
+                        pass
+                elif line.startswith("checkout_requests_total"):
+                    try:
+                        metrics["checkout_requests"] += float(line.split()[-1])
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"Warning: could not read metrics from {url}: {e}")
+    return metrics
+
+
+def wait_for_services_healthy(timeout_s: int = 45) -> bool:
+    """Waits for all services to answer health checks."""
+    endpoints = [
+        "http://localhost:8002/health",
+        "http://localhost:8001/health",
+        "http://localhost:8000/health",
+        "http://localhost:8474/proxies",
+    ]
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        all_ok = True
+        for ep in endpoints:
+            try:
+                r = httpx.get(ep, timeout=2.0)
+                if r.status_code not in (200, 201):
+                    all_ok = False
+                    break
+            except Exception:
+                all_ok = False
+                break
+        if all_ok:
+            print(f"All services healthy after {time.time() - t0:.1f}s")
+            return True
+        time.sleep(1.5)
+    print("Timeout waiting for services to become healthy.")
+    return False
+
+
+def run_live_phase(
+    state_name: str,
+    output_dir: str,
+    latency_ms: int = 2000,
+    total_requests: int = 400,
+    concurrency: int = 15,
+) -> Dict[str, Any]:
+    """Executes a real live experiment phase against running Docker containers."""
+    print(f"\n=======================================================")
+    print(f"  EXECUTING LIVE EXPERIMENT PHASE: {state_name.upper()}")
+    print(f"=======================================================")
+    
+    # 1. Reset and configure Toxiproxy
+    toxi = ToxiproxyClient(host="localhost", port=8474)
+    try:
+        toxi.reset()
+        print("Toxiproxy reset successful.")
+        toxi.add_latency("payment_proxy", latency=latency_ms, jitter=100, toxicity=1.0)
+        print(f"Toxiproxy latency toxic added: {latency_ms}ms (jitter 100ms) on payment_proxy")
+    except Exception as e:
+        print(f"Toxiproxy configuration error: {e}")
+
+    # 2. Capture baseline metric counter snapshots
+    pre_m = read_direct_metrics("http://localhost:8001/metrics")
+    print(f"Pre-workload counter snapshot: {pre_m}")
+
+    # 3. Execute live workload
+    t_start = time.time()
+    wl_res = asyncio.run(
+        run_live_http_workload(
+            "http://localhost:8000/order",
+            total_requests=total_requests,
+            concurrency=concurrency,
+            timeout_s=6.0,
+        )
+    )
+    t_end = time.time()
+    phase_duration = max(0.001, t_end - t_start)
+
+    # 4. Capture post-workload metric counter snapshots
+    time.sleep(2.0)
+    post_m = read_direct_metrics("http://localhost:8001/metrics")
+    print(f"Post-workload counter snapshot: {post_m}")
+
+    retries_counted = max(0.0, post_m["retry_count"] - pre_m["retry_count"])
+    requests_counted = max(0.0, post_m["checkout_requests"] - pre_m["checkout_requests"])
+    if requests_counted == 0:
+        requests_counted = float(total_requests)
+
+    retries_per_req = round(retries_counted / requests_counted, 4) if requests_counted > 0 else 0.0
+    throughput = round(requests_counted / phase_duration, 2)
+    rate_per_min = round((retries_counted / phase_duration) * 60.0, 2)
+
+    # 5. Write real metrics CSV
+    csv_name = f"metrics_{state_name}.csv"
+    csv_path = os.path.join(output_dir, csv_name)
+    with open(csv_path, "w", encoding="utf-8") as f:
+        f.write("timestamp,metric,value\n")
+        f.write(f"{int(t_start)},checkout_retries_total,{pre_m['retry_count']}\n")
+        f.write(f"{int(t_end)},checkout_retries_total,{post_m['retry_count']}\n")
+
+    summary = {
+        "phase": state_name,
+        "duration_s": round(phase_duration, 2),
+        "total_requests": requests_counted,
+        "retries_counted": retries_counted,
+        "retries_per_request": retries_per_req,
+        "rate_per_min": rate_per_min,
+        "throughput_req_per_sec": throughput,
+        "metrics_csv": csv_path,
+    }
+    print(f"Phase {state_name} summary: {summary}")
+    return summary
 
 
 def run_ci_pipeline(
@@ -88,7 +259,7 @@ Generated: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} | Commit: {git_c
         with open(cert_path, "w", encoding="utf-8") as f:
             f.write(cert_md)
 
-        append_step_summary(f"""### 🟢 Fast-Path Complete: Cleared Without Experiment
+        append_step_summary("""### 🟢 Fast-Path Complete: Cleared Without Experiment
 Change was verified safe by deterministic AST analysis. No counterfactual fault experiment required.
 """)
         return {
@@ -109,52 +280,80 @@ Change was verified safe by deterministic AST analysis. No counterfactual fault 
     phase2_md = f"""### 🔬 Phase 2: Counterfactual Hypothesis Formulation
 - **Hypothesis**: {hypothesis_title}
 - **Fault Target**: `payment-proxy` (Toxiproxy 2000ms downstream latency, 100ms jitter)
-- **Workload Target**: `frontend-service` (k6 constant rate 30 RPS over 45s)
+- **Workload Target**: `frontend-service` (30 RPS constant load over live environment)
 - **Predicted Failure**: Retry count amplification > 2.0 retries per failed request
 """
     append_step_summary(phase2_md)
 
     # =========================================================================
-    # Phase 3 & 4: Live Counterfactual Experiments (BASE & PATCHED)
+    # Phase 3 & 4: Live Docker Container Experiments
     # =========================================================================
-    # In CI runtime, we execute the experiments against the Docker Compose stack.
-    # We call the experiment runner or direct container orchestrator.
-    append_step_summary("### ⚡ Phase 3: Executing Live Failure Reproduction (BASE State)...")
-    
-    # Import experiment orchestration helper
-    from changeproof.experiment_runner import ExperimentRunner
-    
-    # Locate or create spec
-    spec_path = "evaluation/cases/case_01.yaml"
-    if not os.path.exists(spec_path):
-        # Fallback to default CASE-01 spec if in subfolder
-        spec_path = os.path.abspath("evaluation/cases/case_01.yaml")
+    append_step_summary("### ⚡ Phase 3: Provisioning Live Stack & Executing Failure Reproduction (BASE State)...")
 
-    # Run experiments (using best available runs or live runner)
-    from evaluation.run_advanced import _find_best_run_csv
-    base_csv = _find_best_run_csv("runs", "case-01", "base")
-    patched_csv = _find_best_run_csv("runs", "case-01", "patched")
+    # Start Docker Compose stack if not running
+    print("Provisioning live Docker Compose environment...")
+    subprocess.run(["docker", "compose", "up", "-d", "--build"], check=False)
+    
+    healthy = wait_for_services_healthy(timeout_s=45)
+    if not healthy:
+        print("Warning: Docker Compose services not ready or Docker not available.")
 
-    if not base_csv or not patched_csv or not os.path.exists(base_csv) or not os.path.exists(patched_csv):
-        cap_fallback = os.path.join(capsules_dir, "case-01.zip")
-        if os.path.exists(cap_fallback):
-            import zipfile
-            with zipfile.ZipFile(cap_fallback, 'r') as zf:
-                zf.extractall(output_dir)
-            if os.path.exists(os.path.join(output_dir, "metrics_base.csv")):
-                base_csv = os.path.join(output_dir, "metrics_base.csv")
-                patched_csv = os.path.join(output_dir, "metrics_patched.csv")
-            else:
-                base_csv = os.path.join(output_dir, "metrics_pre.csv")
-                patched_csv = os.path.join(output_dir, "metrics_post.csv")
-        else:
-            base_csv = "runs/case-01_base_corrected2_1787964332/metrics_base.csv"
-            patched_csv = "runs/case-01_patched_corrected_1787964030/metrics_patched.csv"
+    # Phase 3: BASE state live execution
+    base_summary = run_live_phase("base", output_dir=output_dir, latency_ms=2000, total_requests=400, concurrency=15)
+    base_csv = base_summary["metrics_csv"]
+
+    # Phase 4: Apply remediation patch, rebuild checkout, run PATCHED state
+    append_step_summary("### 🩹 Phase 4: Applying Remediation Patch & Executing Verification (PATCHED State)...")
+    
+    # Write safe remediation configuration to checkout service
+    checkout_main_path = "app/checkout/main.py"
+    with open(checkout_main_path, "r", encoding="utf-8") as f:
+        code = f.read()
+    
+    # Patch configuration
+    patched_code = code.replace(
+        'RETRIES_MAX = int(os.getenv("RETRIES_MAX", "8"))',
+        'RETRIES_MAX = int(os.getenv("RETRIES_MAX", "2"))'
+    ).replace(
+        'RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.0"))',
+        'RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.5"))'
+    ).replace(
+        'RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "0.5"))',
+        'RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "1.0"))'
+    )
+    with open(checkout_main_path, "w", encoding="utf-8") as f:
+        f.write(patched_code)
+
+    # Rebuild and restart checkout container
+    print("Rebuilding checkout container with remediation patch...")
+    subprocess.run(["docker", "compose", "build", "checkout-service"], check=False)
+    subprocess.run(["docker", "compose", "up", "-d", "checkout-service"], check=False)
+    time.sleep(4.0)
+    wait_for_services_healthy(timeout_s=20)
+
+    # Phase 4: PATCHED state live execution
+    patched_summary = run_live_phase("patched", output_dir=output_dir, latency_ms=2000, total_requests=400, concurrency=15)
+    patched_csv = patched_summary["metrics_csv"]
+
+    # Restore base code file after test
+    with open(checkout_main_path, "w", encoding="utf-8") as f:
+        f.write(code)
+
+    # Write combined run manifest
+    manifest_data = {
+        "experiment_id": "case-01-live-ci",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "base": base_summary,
+        "patched": patched_summary,
+    }
+    manifest_path = os.path.join(output_dir, "manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest_data, f, indent=2)
 
     # =========================================================================
     # Phase 5: Deterministic Assertion Verification
     # =========================================================================
-    import yaml
+    spec_path = "evaluation/cases/case_01.yaml"
     with open(spec_path, "r", encoding="utf-8") as f:
         spec_data = yaml.safe_load(f)
     assertions = spec_data.get("assertions", {})
@@ -167,10 +366,10 @@ Change was verified safe by deterministic AST analysis. No counterfactual fault 
     for r in ver_res.diff_table:
         diff_table_md += f"| {r['metric']} | {r['phase']} | {r['observed_value']} | `{r['condition']}` | {'✅ YES' if r['condition_met'] else '❌ NO'} |\n"
 
-    phase5_md = f"""### ⚖️ Phase 4 & 5: Deterministic Verification
+    phase5_md = f"""### ⚖️ Phase 5: Deterministic Verification Verdict
 - **Deterministic Verdict**: **{ver_res.status}** ({ver_res.reason})
-- **Pre-Patch Retries/Request (BASE)**: **{pre_s.get('retries_per_request', 'N/A')}** (Storm Rate: {pre_s.get('rate_per_min', 'N/A')} /min, {pre_s.get('total_requests', 'N/A')} reqs)
-- **Post-Patch Retries/Request (PATCHED)**: **{post_s.get('retries_per_request', 'N/A')}** (Rate: {post_s.get('rate_per_min', 'N/A')} /min, {post_s.get('total_requests', 'N/A')} reqs)
+- **Pre-Patch Retries/Request (BASE)**: **{pre_s.get('retries_per_request', 'N/A')}** (Storm Rate: {pre_s.get('rate_per_min', 'N/A')} /min, {pre_s.get('total_requests', 'N/A')} reqs, Throughput: {pre_s.get('throughput_req_per_sec', 'N/A')} req/s)
+- **Post-Patch Retries/Request (PATCHED)**: **{post_s.get('retries_per_request', 'N/A')}** (Rate: {post_s.get('rate_per_min', 'N/A')} /min, {post_s.get('total_requests', 'N/A')} reqs, Throughput: {post_s.get('throughput_req_per_sec', 'N/A')} req/s)
 
 {diff_table_md}
 """
@@ -185,7 +384,7 @@ Change was verified safe by deterministic AST analysis. No counterfactual fault 
     cert_gen = CertificateGenerator()
     cert_ctx = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "experiment_id": "case-01-pr",
+        "experiment_id": "case-01-live-ci",
         "git_commit": git_commit,
         "risk_level": risk_level,
         "risk_score": risk_score,
@@ -198,6 +397,15 @@ Change was verified safe by deterministic AST analysis. No counterfactual fault 
         "capsule_path": capsule_path,
     }
     cert_gen.generate_and_save(cert_ctx, cert_path)
+
+    # Package reproduction capsule
+    packager = CapsulePackager(capsules_dir=capsules_dir)
+    packager.package(
+        run_dir=output_dir,
+        spec_path=spec_path,
+        patch_path=None,
+        output_filename="case-01.zip",
+    )
 
     phase6_md = f"""### 📦 Phase 6: Reproduction Capsule & Proof Certificate
 - **Proof Certificate**: Generated at `{cert_path}`
@@ -230,10 +438,9 @@ def main():
         with open(args.diff, "r", encoding="utf-8") as f:
             diff_text = f.read()
     else:
-        # Read from git diff against origin/main if available
         try:
             p = subprocess.run(
-                ["git", "diff", "origin/main...HEAD"],
+                ["git", "diff", "origin/main", "HEAD"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace"
             )
             diff_text = p.stdout or ""
