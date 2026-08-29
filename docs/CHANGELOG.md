@@ -1,6 +1,6 @@
 # ChangeProof Engineering & Improvement Changelog
 
-> Chronological record of architectural decisions, empirical discoveries, bug audits, assertion calibrations, and system hardening milestones per ChangeProof Spec §16.
+> Chronological record of architectural decisions, empirical discoveries, bug audits, assertion calibrations, and system hardening milestones per ChangeProof Spec Ã‚Â§16.
 
 ---
 
@@ -12,7 +12,7 @@
 - **Evidence / Result**: 
   Implemented a single primary LLM with a thin tool-calling loop over 8 deterministic Python functions (`read_file`, `read_topology`, `read_runtime_snapshot`, `propose_hypothesis`, `run_experiment`, `read_metrics`, `write_patch`, `run_tests`), keeping the verifier strictly zero-LLM.
 - **Decision / Learning**: 
-  Approved per AGENTS.md §4. Single LLM agent with direct deterministic tools eliminates non-deterministic intermediate handoffs while keeping the deterministic verifier as the sole safety authority.
+  Approved per AGENTS.md Ã‚Â§4. Single LLM agent with direct deterministic tools eliminates non-deterministic intermediate handoffs while keeping the deterministic verifier as the sole safety authority.
 
 ---
 
@@ -58,7 +58,7 @@
 - **Commit**: `65237ac`
 - **Stage**: Verification Threshold Recalibration
 - **What Was Tried / Why**: 
-  Live experiments revealed that un-normalized `rate_per_min` (<150 retries/min) penalized healthier systems. Under 2000ms latency, the broken BASE state (`RETRIES_MAX=8`, no backoff) tied up connections for ~8s per request, achieving low throughput (7.4 req/s, 390 requests) with high amplification (4.53 retries/req, 1,767 total retries). The PATCHED state (`RETRIES_MAX=2`, backoff=0.5) completed in ~2.5s, processing nearly 2× higher volume (14.37 req/s, 723 requests) with strictly 1 retry per request (723 retries, 834.2 retries/min).
+  Live experiments revealed that un-normalized `rate_per_min` (<150 retries/min) penalized healthier systems. Under 2000ms latency, the broken BASE state (`RETRIES_MAX=8`, no backoff) tied up connections for ~8s per request, achieving low throughput (7.4 req/s, 390 requests) with high amplification (4.53 retries/req, 1,767 total retries). The PATCHED state (`RETRIES_MAX=2`, backoff=0.5) completed in ~2.5s, processing nearly 2Ãƒâ€” higher volume (14.37 req/s, 723 requests) with strictly 1 retry per request (723 retries, 834.2 retries/min).
 - **Evidence / Result**: 
   Updated assertion definitions in `evaluation/cases/case_01.yaml` and `verifier.py`:
   - `pre_patch`: `retries_per_request > 2.0` (Observed: 4.531) AND `total_requests >= 100` (Observed: 390) -> `true`
@@ -96,19 +96,73 @@
 
 ---
 
-### [2026-08-29] GitHub Actions CI Automation & Live Container Execution
+### [2026-08-29] GitHub Actions CI Automation & Live Container Execution â€” Canonical Numbers & Run ID Settlement
 - **Commit**: `7b3ec20`
 - **Stage**: CI/CD Integration & Live Runner Verification
+
+#### Run ID Settlement
+Two GH Actions run IDs were referenced across documents. Both are real, but only one is a live execution:
+
+| Run ID | Commit | Step 6 Duration | Verdict |
+|---|---|---|---|
+| `33226386998` | `26fc385` | **1 second** | Capsule-extraction fallback â€” `ci_pipeline.py` at that commit re-extracted the pre-packaged `case-01.zip` instead of running live containers. **Not a fresh live run.** |
+| `33227355365` | `7b3ec20` | **103 seconds (1m43s)** | **Canonical live run** â€” Docker Compose stack built, Toxiproxy fault injected, async HTTP workload executed, Prometheus metrics captured. Step timing confirmed via GH API (`01:48:28 â†’ 01:50:11`). |
+
+**`33226386998` is not an unaccounted run â€” it executed the old fallback code path, not live containers. `33227355365` is the submission's canonical CI execution.**
+
+#### Canonical Submission Numbers (run `33227355365`, `RETRY_TIMEOUT_SECONDS=0.5`)
+- **Pre-Patch (Broken)**: 150 requests, 1,050 retries â†’ **7.000 retries/req**, 1520.64 retries/min, 3.62 req/s
+- **Post-Patch (Remediated)**: 150 requests, 150 retries â†’ **1.000 retry/req**, 349.66 retries/min, 5.83 req/s
+- **Deterministic Verifier**: **`PASS`**
+- PR comment and capsule artifact (`changeproof-reproduction-capsule`) posted live on PR #1
+
+#### Why Two Configurations Produce Different (Both Real) Numbers
+
+| Config | Timeout | Retries/req | Total reqs | Explanation |
+|---|---|---|---|---|
+| **CI run** (`33227355365`) | **0.5s** | **7.0** | **150** | All 7 retries fire before 5.0s gateway timeout elapses â†’ full amplification |
+| Local manual run | 1.0s | 4.531 | 390 | Gateway timeout truncates retry chain mid-flight; higher throughput from shorter per-request time |
+
+Both are real. The CI run with `RETRY_TIMEOUT_SECONDS=0.5` is **canonical** â€” that is what the PR actually sets.
+
+#### Capsule Provenance (updated 2026-08-29)
+- **`capsules/case-01.zip`** â€” **Canonical submission capsule.** CI run `33227355365`, commit `7b3ec20`. Contains 7.0 retries/req pre-patch, 1.0 retry/req post-patch, 150 requests each. SHA256: `b775406b54b04dee5e789c66569e05bd94f2bdd958d8c1b789de9053093fd072`. Fresh replay confirmed: `python changeproof/replay.py capsules/case-01.zip` â†’ **PASS**.
+- **`capsules/case-01-local-timeout1.0.zip`** â€” Secondary artifact. Local run, `RETRY_TIMEOUT_SECONDS=1.0`, 4.531 retries/req, 390 requests. Preserved to document timeout-sensitivity. Not referenced by the certificate or CI PR comment.
+
+- **What Was Tried / Why**: Configured GitHub Actions workflow to automatically assess PR diffs, provision live Docker Compose stacks, inject Toxiproxy faults, execute concurrent workloads, verify deterministic metrics, and post Proof Certificates as PR comments.
+- **Evidence / Result**: Initial CI runs (e.g. `33226386998`) fell back to capsule extraction (1-second step). Rebuilt `ci_pipeline.py` for genuine container orchestration. Canonical run `33227355365` produced live telemetry above. `capsules/case-01.zip` regenerated from CI data; old local capsule preserved as `case-01-local-timeout1.0.zip`. Fresh replay confirmed PASS.
+- **Decision / Learning**: CI must never fall back to cached runs. Timeout config differences between local and CI both produce real, valid measurements; the CI run under the PR's actual config is canonical. Timeout sensitivity is a genuine product finding worth preserving.
+
+---
+
+### [2026-08-29] Topology-Driven Experiment Specification Synthesis
+- **Commit**: HEAD (Topology-Driven Experiment Synthesizer)
+- **Stage**: Architecture Generalization & Automated Experiment Synthesis
 - **What Was Tried / Why**: 
-  Configured GitHub Actions workflow (`.github/workflows/changeproof.yml`) to automatically assess PR diffs, provision live Docker Compose stacks in runner VMs, inject network faults via Toxiproxy, execute real concurrent workloads against running FastAPI services, verify deterministic metrics, and post Proof Certificates as PR comments with capsule attachments.
+  Replaced static copying of evaluation/cases/case_01.yaml with a fully dynamic, topology-driven ExperimentSynthesizer (changeproof/experiment_synthesizer.py). The synthesizer parses docker-compose.yml and 	oxiproxy_init.json to automatically:
+  1. Map changed files in PR diffs to service containers via build context paths.
+  2. Resolve downstream network dependencies by inspecting environment variables and Toxiproxy proxy maps.
+  3. Identify Toxiproxy fault-injection proxy targets and ports.
+  4. Calibrate fault magnitude dynamically: injected_latency_ms = max(2 * timeout_ms, 1500) with jitter_ms = max(int(0.05 * injected_latency_ms), 50) based on empirical findings from CASE-01 and CASE-10 (latency must exceed per-attempt client timeout by >= 2x to reliably induce timeout retry loops).
+  5. Resolve workload gateway entrypoints via graph in-degree root analysis.
+  6. Assemble complete experiment.yaml specs with generalized assertion contracts (etries_per_request > 2.0 pre, <= 1.1 post).
 - **Evidence / Result**: 
-  - Audit revealed initial CI runs fell back to pre-packaged archive extraction when local run directories were absent.
-  - Rebuilt `changeproof/ci_pipeline.py` to drive real live Docker containers (`docker compose up -d --build`), direct Toxiproxy REST fault injection (`payment-proxy` 2000ms latency), real concurrent async HTTP workloads, and boundary Prometheus metric extraction.
-  - Live execution on PR #1 (workflow run `33227355365`) completed in 2m8s with genuinely measured telemetry:
-    - **Pre-Patch (Broken)**: 150 requests, 1,050 retries -> **7.000 retries/req** (amplification reproduced, satisfying `> 2.0`), 1520.64 retries/min, 3.62 req/s.
-    - **Post-Patch (Remediated)**: 150 requests, 150 retries -> **1.000 retry/req** (controlled, satisfying `<= 1.1`), 349.66 retries/min, 5.83 req/s.
-    - **Deterministic Verifier**: **`PASS`**.
-    - PR comment and capsule artifact (`changeproof-reproduction-capsule`) posted live on PR #1.
-  - Difference between PR #1's 7.0 retries/req and manual CASE-01's 4.531 retries/req was empirically confirmed: PR #1's diff set `RETRY_TIMEOUT_SECONDS=0.5` (vs. 1.0s), enabling all 7 retries (8 attempts) to finish inside the 5.0s gateway timeout before truncation.
+  - Verified on alternate multi-service topology (gateway-service -> inventory-service -> 	oxiproxy -> warehouse-service): synthesized experiment.yaml correctly targeted warehouse-proxy on inventory-service with zero hardcoded references to checkout/payment.
+  - Regression verified against CASE-01 (PASS), CASE-05 (PASS_SAFE), and CASE-10 (PASS).
+  - Added unit test suite 	ests/unit/test_experiment_synthesizer.py.
 - **Decision / Learning**: 
-  CI pipelines must never fall back to static/cached runs in testing workflows; genuine container orchestration and network fault injection in GitHub Actions runners proves that ChangeProof operates autonomously end-to-end.
+  Reliability verification systems must synthesize experiment hypotheses directly from declarative dependency graphs and diff AST signals rather than relying on pre-authored static YAML templates.
+
+---
+
+### [2026-08-29] Calibration Formula Freezing & Dual-Regime Held-Out Validation (case-calib-01 & case-calib-02)
+- **Commit**: HEAD (`case-calib-01` & `case-calib-02` validation)
+- **Stage**: Fault Magnitude Calibration & Held-Out Validation
+- **What Was Tried / Why**: 
+  Formula frozen after case-01/case-10 derivation; validated on timeout=0.3s (floor regime) and timeout=1.3s (multiplicative regime, novel value) — both outside the original 0.5s/1.0s derivation inputs. Evaluated whether the frozen formula `injected_latency_ms = max(2 * timeout_ms, 1500)` reliably reproduces and verifies failures across both regimes without any re-tuning.
+- **Evidence / Result**: 
+  - **`case-calib-01` (Floor Regime, Timeout=0.3s)**: $\max(2 \times 300, 1500) = 1500\text{ms}$ latency. BASE produced 7.000 retries/req (2449.83 retries/min), PATCHED produced 1.000 retry/req (350.88 retries/min). Verifier: **`PASS`**. Capsule: `capsules/case-calib-01.zip`.
+  - **`case-calib-02` (Multiplicative Regime, Timeout=1.3s)**: $\max(2 \times 1300, 1500) = 2600\text{ms}$ latency. BASE produced 4.000 retries/req (712.27 retries/min), PATCHED produced 1.000 retry/req (350.86 retries/min). Verifier: **`PASS`**. Capsule: `capsules/case-calib-02.zip`.
+  - Replay verified for both capsules via `python changeproof/replay.py` -> **`PASS`**.
+- **Decision / Learning**: 
+  The frozen fault calibration formula reliably transfers to both the baseline floor regime (<0.75s) and the multiplicative scaling regime (>=0.75s) on novel timeout values without empirical re-tuning.

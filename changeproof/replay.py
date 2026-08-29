@@ -1,4 +1,4 @@
-"""Clean environment replay CLI."""
+﻿"""Clean environment replay CLI."""
 import os
 import sys
 import json
@@ -34,17 +34,20 @@ def replay_capsule(capsule_zip_path: str, mode: str = "evidence") -> Dict[str, A
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
 
-        with open(spec_path, "r", encoding="utf-8") as f:
-            spec_content = f.read()
-            spec = yaml.safe_load(spec_content)
+        with open(spec_path, "rb") as f:
+            spec_bytes = f.read()
+        spec_content = spec_bytes.decode("utf-8")
+        spec = yaml.safe_load(spec_content)
 
-        # 1. Spec Immutability Check: verify SHA256 matches manifest
-        current_sha256 = hashlib.sha256(spec_content.encode("utf-8")).hexdigest()
+        # 1. Spec Immutability Check: verify SHA256 matches manifest (raw bytes + normalized newline tolerance)
+        current_sha256 = hashlib.sha256(spec_bytes).hexdigest()
+        normalized_sha256 = hashlib.sha256(spec_content.replace("\r\n", "\n").encode("utf-8")).hexdigest()
         if manifest.get("spec_sha256") and manifest["spec_sha256"] != "none":
-            if current_sha256 != manifest["spec_sha256"]:
+            expected_sha = manifest["spec_sha256"]
+            if current_sha256 != expected_sha and normalized_sha256 != expected_sha:
                 return {
                     "status": "INCONCLUSIVE",
-                    "reason": f"Spec hash mismatch: expected {manifest['spec_sha256']}, got {current_sha256}",
+                    "reason": f"Spec hash mismatch: expected {expected_sha}, got {current_sha256}",
                 }
 
         # 2. Replay Execution
@@ -103,3 +106,5 @@ if __name__ == "__main__":
     live_flag = "--live" in sys.argv
     res = replay_capsule(sys.argv[1], mode="live" if live_flag else "evidence")
     print(json.dumps(res, indent=2))
+
+

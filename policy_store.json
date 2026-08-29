@@ -8,5 +8,15 @@
     "decision": "APPROVED_POLICY",
     "rationale": "Empirical evidence from CASE-01 demonstrated that 8 retries with 0 backoff triggers a 3,329 retries/min storm under 2000ms payment latency.",
     "experiment_id": "case-01"
+  },
+  {
+    "policy_id": "POL-1788006970",
+    "created_at": "2026-08-29T12:36:10Z",
+    "author": "Saksham (Reliability Lead)",
+    "trigger": "human_governance_decision",
+    "rule": "payment-service retries must not exceed 4",
+    "decision": "APPROVED_POLICY",
+    "rationale": "Empirical finding from CASE-01: retries > 4 trigger severe storm cascades under downstream latency",
+    "experiment_id": "case-01"
   }
 ]
