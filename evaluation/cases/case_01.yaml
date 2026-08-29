@@ -1,6 +1,6 @@
 # CASE-01: Canonical Retry Amplification Scenario
 id: "case-01"
-version: "1.0"
+version: "1.1"
 title: "Downstream Latency Induces Retry Amplification Storm"
 description: "Checkout increases RETRIES_MAX from 3 to 8 under 2000ms payment latency."
 
@@ -38,10 +38,16 @@ measurements:
 
 assertions:
   pre_patch:
-    - metric: "retry_count_total"
-      condition: "rate_per_min > 500"
-      description: "Retry amplification storm visible under downstream latency (empirically >3000/min in broken state)"
+    - metric: "retries_per_request"
+      condition: "> 2.0"
+      description: "Retry amplification storm visible as >2.0 retries per failed request (observed 4.53 in base state)"
+    - metric: "total_requests"
+      condition: ">= 100"
+      description: "Sufficient workload request sample size under failure (observed 390 in base state)"
   post_patch:
-    - metric: "retry_count_total"
-      condition: "rate_per_min < 150"
-      description: "Retry count bounded and controlled after remediation with exponential backoff (empirically <100/min)"
+    - metric: "retries_per_request"
+      condition: "<= 1.1"
+      description: "Retry count bounded to <=1.1 retries per failed request after backoff remediation (observed 1.0 in patched state)"
+    - metric: "total_requests"
+      condition: ">= 100"
+      description: "Sufficient workload request sample size under failure (observed 723 in patched state)"

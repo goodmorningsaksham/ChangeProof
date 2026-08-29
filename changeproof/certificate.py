@@ -17,9 +17,17 @@ Generated: {{ timestamp }} | Experiment: {{ experiment_id }} | Commit: {{ git_co
 - **Risk Level**: {{ risk_level }} (Score: {{ risk_score }}/100)
 - **Failure Class**: Retry Amplification / Retry Storm
 - **Hypothesis**: {{ hypothesis_title }} (Confidence: {{ hypothesis_confidence }})
-- **Deterministic Verification**: **{{ verification_status }}**
+- **Deterministic Verification Verdict**: **{{ verification_status }}**
 
-## Evidence Comparison
+## Key Metric Observations & Throughput Context
+| Metric | Pre-Patch (Broken) | Post-Patch (Remediated) | Target / Safe Bound | Status |
+|---|---|---|---|---|
+| **Retries / Request** | **{{ pre_retries_per_request | default(pre_summary.retries_per_request if pre_summary else 'N/A') }}** | **{{ post_retries_per_request | default(post_summary.retries_per_request if post_summary else 'N/A') }}** | `> 2.0` (Pre) / `<= 1.1` (Post) | {{ "✅ CONTROLLED" if verification_status == "PASS" else "❌ UNBOUNDED" }} |
+| **Throughput (req/s)** | {{ pre_throughput | default(pre_summary.throughput_req_per_sec if pre_summary else 'N/A') }} req/s | {{ post_throughput | default(post_summary.throughput_req_per_sec if post_summary else 'N/A') }} req/s | Context (Normalized capacity) | ℹ️ Reported |
+| **Total Requests** | {{ pre_total_requests | default(pre_summary.total_requests if pre_summary else 'N/A') }} | {{ post_total_requests | default(post_summary.total_requests if post_summary else 'N/A') }} | `>= 100` Sample Size | ✅ Validated |
+| **Rate (retries/min)** | {{ pre_rate_per_min | default(pre_summary.rate_per_min if pre_summary else 'N/A') }} /min | {{ post_rate_per_min | default(post_summary.rate_per_min if post_summary else 'N/A') }} /min | Context (Un-normalized rate) | ℹ️ Reported |
+
+## Deterministic Assertion Verification
 | Metric | Phase | Observed Value | Condition | Condition Met |
 |---|---|---|---|---|
 {% for row in diff_table %}

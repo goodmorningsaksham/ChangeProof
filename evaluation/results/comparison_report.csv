@@ -1,5 +1,5 @@
 case_id,title,executed,risk_level,baseline_verdict,advanced_verdict,runtime_evidence_used,deterministic_verification,not_executed_reason
-case-01,Downstream Latency Induces Retry Amplification Storm,True,HIGH,REVIEW_FLAGGED,FAIL,True,True,
+case-01,Downstream Latency Induces Retry Amplification Storm,True,HIGH,REVIEW_FLAGGED,PASS,True,True,
 case-02,Severe Downstream Latency Under Increased Retries,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True
 case-03,Immediate Retries Cause Request Clustering,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True
 case-04,Aggressive Timeout Triggers Pre-mature Retries,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True

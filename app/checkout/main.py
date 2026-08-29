@@ -62,7 +62,14 @@ class CheckoutResponse(BaseModel):
     total_latency_ms: float
 
 def record_retry_callback(retry_state: RetryCallState):
-    if retry_state.attempt_number > 1:
+    """Increment retry counter on every retry attempt.
+
+    tenacity calls before_sleep with attempt_number = the attempt that just
+    failed and will be retried.  attempt_number >= 1 counts every retry
+    (the first retry fires with attempt_number=1).  The prior guard
+    (attempt_number > 1) silently dropped the first retry of each request.
+    """
+    if retry_state.attempt_number >= 1:
         RETRY_COUNT_TOTAL.labels(service="checkout", target="payment").inc()
 
 @app.get("/health")

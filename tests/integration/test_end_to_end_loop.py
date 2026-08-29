@@ -47,16 +47,20 @@ def test_full_case01_pipeline_loop(tmp_path):
         yaml.dump(spec, f)
 
     import pandas as pd
-    # Pre-patch failure reproduction (amplification: 2000 retries/min)
+    # Pre-patch failure reproduction (amplification: 2000 retries / 400 requests = 5.0 retries/req)
     pd.DataFrame([
         {"timestamp": 1.0, "metric_name": "retry_count_total", "service": "checkout", "target": "payment", "value": 0.0},
         {"timestamp": 45.0, "metric_name": "retry_count_total", "service": "checkout", "target": "payment", "value": 2000.0},
+        {"timestamp": 1.0, "metric_name": "checkout_requests_total", "service": "checkout", "target": "all", "value": 0.0},
+        {"timestamp": 45.0, "metric_name": "checkout_requests_total", "service": "checkout", "target": "all", "value": 400.0},
     ]).to_csv(pre_csv, index=False)
 
-    # Post-patch remediated state (bounded: 25 retries/min)
+    # Post-patch remediated state (bounded: 400 retries / 400 requests = 1.0 retry/req)
     pd.DataFrame([
         {"timestamp": 1.0, "metric_name": "retry_count_total", "service": "checkout", "target": "payment", "value": 0.0},
-        {"timestamp": 45.0, "metric_name": "retry_count_total", "service": "checkout", "target": "payment", "value": 25.0},
+        {"timestamp": 45.0, "metric_name": "retry_count_total", "service": "checkout", "target": "payment", "value": 400.0},
+        {"timestamp": 1.0, "metric_name": "checkout_requests_total", "service": "checkout", "target": "all", "value": 0.0},
+        {"timestamp": 45.0, "metric_name": "checkout_requests_total", "service": "checkout", "target": "all", "value": 400.0},
     ]).to_csv(post_csv, index=False)
 
     # 6. Deterministic Verification

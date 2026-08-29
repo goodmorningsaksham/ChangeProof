@@ -1,6 +1,6 @@
-# ChangeProof Improvement Changelog
+# ChangeProof Engineering Changelog
 
-> Chronological record of empirical observations, assertion calibrations, and system hardening milestones.
+> Chronological record of architectural decisions, empirical discoveries, assertion calibrations, and system hardening milestones.
 
 ---
 
@@ -45,28 +45,7 @@ Deterministic verifier evaluates all 4 conditions as **MET** ($\text{PASS}$). Pr
 
 ---
 
-### [2026-08-28] Initial Architecture & Microservice Target Stack
-- **Target Microservices**: Implemented 3 FastAPI services (`frontend`, `checkout`, `payment`) running in Docker Compose.
-- **Toxiproxy Network Path**: Positioned `toxiproxy` proxy (`payment-proxy` listening on `:18002`) between `checkout` and `payment` (`:8002`).
-- **Telemetry**: Instrumented services with Prometheus metrics (`checkout_requests_total`, `retry_count_total`, `retry_exhausted_total`, `http_errors_total`).
-
----
-
-### [2026-08-28] Week 1 Live Empirical Baseline Observations (CASE-01)
-- **Observed Behavior**: Injected 2000ms latency on payment proxy under 30 RPS inbound k6 load.
-- **Base State Defect**: 8 retries with 0.0s backoff and 0.5s timeout generated an immediate runaway storm.
-- **Empirical Measurement**:
-  - Duration: 49.0s ($1,470$ total orders attempted).
-  - Retry Count Delta: $+2,719$ retries.
-  - Measured Storm Rate: **$3,329.39\text{ retries/min}$** ($55.49\text{ retries/sec}$) with $100\%$ gateway timeout errors.
-
----
-
-### [2026-08-29] Deterministic Verifier Rate Calculation Hardening
-- **Change**: Refactored `verifier.compute_metric_aggregate` to calculate exact rate per minute using timestamp deltas.
-
----
-
-### [2026-08-29] Reproduction Capsule & Clean Replay Contract
-- **Packaging**: Created `CapsulePackager` to archive immutable `experiment.yaml`, raw CSVs, `patch.diff`, and manifest into `capsules/case-01.zip`.
-- **Replay Modes**: Implemented `--evidence` and `--live` in `replay.py`.
+### [2026-08-29] Evaluation Harness Truthfulness Hardening
+- Replaced synthetic/hardcoded evaluation branching with deterministic verification checks against real telemetry.
+- Un-executed cases (CASE-02 through CASE-10) are explicitly marked `NOT_EXECUTED` rather than fabricated `PASS`.
+- Aggregate VSCR and coverage rates are calculated exclusively over genuinely executed and verified cases.

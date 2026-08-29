@@ -37,10 +37,9 @@ def _find_best_run_csv(runs_dir: str, case_id: str, state: str) -> Optional[str]
     {case_id}_{state}_* directories.  Returns None if no non-empty CSV exists."""
     # Match directories like case-01_base_* or case-01_patched_*
     pattern = os.path.join(runs_dir, f"{case_id}_{state}_*")
-    candidates = sorted(glob.glob(pattern), reverse=True)  # newest first (highest timestamp)
+    matched_dirs = [d for d in glob.glob(pattern) if os.path.isdir(d)]
+    candidates = sorted(matched_dirs, key=lambda d: os.path.getmtime(d), reverse=True)
     for run_dir in candidates:
-        if not os.path.isdir(run_dir):
-            continue
         # Metrics file may be named metrics_{state}.csv or metrics_base/patched.csv
         for csv_name in (f"metrics_{state}.csv", "metrics_base.csv", "metrics_patched.csv"):
             csv_path = os.path.join(run_dir, csv_name)

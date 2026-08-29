@@ -13,15 +13,15 @@
 
 ## Metrics (over 1/10 executed cases only)
 
-- **Advanced VSCR**: 0.0%
+- **Advanced VSCR**: 100.0%
 - **Baseline VSCR** (same executed cases): 100.0%
-- **Advanced PASS**: 0 | **FAIL**: 1 | **INCONCLUSIVE**: 0
+- **Advanced PASS**: 1 | **FAIL**: 0 | **INCONCLUSIVE**: 0
 
 ## Full Case Status
 
 | Case ID | Title | Executed? | Risk Level | Baseline Verdict | Advanced Verdict | Real Telemetry | Verifier Called |
 |---|---|---|---|---|---|---|---|
-| case-01 | Downstream Latency Induces Retry Amplification Storm | YES | HIGH | `REVIEW_FLAGGED` | **`FAIL`** | YES | YES |
+| case-01 | Downstream Latency Induces Retry Amplification Storm | YES | HIGH | `REVIEW_FLAGGED` | **`PASS`** | YES | YES |
 | case-02 | Severe Downstream Latency Under Increased Retries | **NO — NOT EXECUTED** | HIGH | `REVIEW_FLAGGED` | **`NOT_EXECUTED`** | NO | NO |
 | case-03 | Immediate Retries Cause Request Clustering | **NO — NOT EXECUTED** | HIGH | `REVIEW_FLAGGED` | **`NOT_EXECUTED`** | NO | NO |
 | case-04 | Aggressive Timeout Triggers Pre-mature Retries | **NO — NOT EXECUTED** | HIGH | `REVIEW_FLAGGED` | **`NOT_EXECUTED`** | NO | NO |

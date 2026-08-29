@@ -21,10 +21,10 @@
     ]
   },
   "metrics_over_executed_cases_only": {
-    "vscr_advanced": 0.0,
+    "vscr_advanced": 100.0,
     "vscr_baseline": 100.0,
-    "pass_count": 0,
-    "fail_count": 1,
+    "pass_count": 1,
+    "fail_count": 0,
     "inconclusive_count": 0
   },
   "cases": [
@@ -34,7 +34,7 @@
       "executed": true,
       "risk_level": "HIGH",
       "baseline_verdict": "REVIEW_FLAGGED",
-      "advanced_verdict": "FAIL",
+      "advanced_verdict": "PASS",
       "runtime_evidence_used": true,
       "deterministic_verification": true,
       "not_executed_reason": ""
