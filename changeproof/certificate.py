@@ -6,11 +6,11 @@ DEFAULT_MD_TEMPLATE = """# CHANGE PROOF CERTIFICATE
 Generated: {{ timestamp }} | Experiment: {{ experiment_id }} | Commit: {{ git_commit }}
 
 {% if verification_status == "PASS" %}
-> **STATUS**: [PASS] PROVEN & VERIFIED SAFE â€” Patch passed deterministic criteria.
+> **STATUS**: [PASS] PROVEN & VERIFIED SAFE — Patch passed deterministic criteria.
 {% elif verification_status == "INCONCLUSIVE" %}
 > **STATUS**: [INCONCLUSIVE] Insufficient runtime evidence to prove safety. NOT CERTIFIED FOR PRODUCTION.
 {% else %}
-> **STATUS**: [FAIL] VERIFICATION FAILED â€” Remediation patch failed deterministic assertions.
+> **STATUS**: [FAIL] VERIFICATION FAILED — Remediation patch failed deterministic assertions.
 {% endif %}
 
 ## Evaluation Summary
@@ -46,6 +46,13 @@ Generated: {{ timestamp }} | Experiment: {{ experiment_id }} | Commit: {{ git_co
 {% for row in diff_table %}
 | {{ row.metric }} | {{ row.phase }} | {{ row.observed_value }} | `{{ row.condition }}` | {{ "YES" if row.condition_met else "NO" }} |
 {% endfor %}
+
+{% if patch_diff %}
+## Recommended Remediation Patch
+```diff
+{{ patch_diff }}
+```
+{% endif %}
 
 ## Reproducibility & Artifacts
 - **Reproduction Capsule**: `{{ capsule_path }}`
