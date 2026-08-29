@@ -1,11 +1,11 @@
-case_id,title,category,risk_level,baseline_verdict,advanced_verdict,remediation_verified
-case-01,Downstream Latency Induces Retry Amplification Storm,High-Risk Failure,MEDIUM,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
-case-02,Severe Downstream Latency Under Increased Retries,High-Risk Failure,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
-case-03,Immediate Retries Cause Request Clustering,High-Risk Failure,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
-case-04,Aggressive Timeout Triggers Pre-mature Retries,High-Risk Failure,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
-case-05,Asynchronous Non-Critical Retries Do Not Impact Core Checkout,Negative Control (Safe),LOW,PASSED_UNCHECKED,PASS_SAFE,True
-case-06,Removal of Circuit Breaker Causes Cascading Failure,High-Risk Failure,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
-case-07,Multi-Tier Amplification Across Gateway and Business Services,High-Risk Failure,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
-case-08,Retries Exhaust HTTP Client Connection Pool,High-Risk Failure,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
-case-09,Traffic Burst Triggers Cascading Amplification Wave,High-Risk Failure,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
-case-10,Compound Failure: High Latency and Concurrency Wave Induce Retry Cascade,High-Risk Failure,LOW,PASSED_UNCHECKED,PROVEN_AND_REMEDIATED,True
+case_id,title,executed,risk_level,baseline_verdict,advanced_verdict,runtime_evidence_used,deterministic_verification,not_executed_reason
+case-01,Downstream Latency Induces Retry Amplification Storm,True,HIGH,REVIEW_FLAGGED,FAIL,True,True,
+case-02,Severe Downstream Latency Under Increased Retries,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True
+case-03,Immediate Retries Cause Request Clustering,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True
+case-04,Aggressive Timeout Triggers Pre-mature Retries,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True
+case-05,Asynchronous Non-Critical Retries Do Not Impact Core Checkout,False,LOW,PASSED_UNCHECKED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True
+case-06,Removal of Circuit Breaker Causes Cascading Failure,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True
+case-07,Multi-Tier Amplification Across Gateway and Business Services,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True
+case-08,Retries Exhaust HTTP Client Connection Pool,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True
+case-09,Traffic Burst Triggers Cascading Amplification Wave,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True
+case-10,Compound Failure: High Latency and Concurrency Wave Induce Retry Cascade,False,HIGH,REVIEW_FLAGGED,NOT_EXECUTED,False,False,No non-empty base metrics: True; no non-empty patched metrics: True

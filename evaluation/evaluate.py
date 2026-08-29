@@ -1,76 +1,115 @@
-"""Evaluation benchmark comparator computing Verified Safe Change Rate (VSCR)."""
+"""Evaluation benchmark comparator — honest execution coverage reporting.
+
+Metrics are computed ONLY over cases that were actually executed (i.e., those
+whose advanced_verdict is not NOT_EXECUTED and not SKIPPED/SEALED).  Cases
+with NOT_EXECUTED are counted separately and explicitly reported.
+
+vscr_baseline is computed from actual baseline verdicts, not a hardcoded literal.
+"""
 import os
 import json
 import pandas as pd
-from typing import Dict, Any
+from typing import Dict, Any, List
 from evaluation.run_baseline import BaselineRunner
 from evaluation.run_advanced import AdvancedRunner
 
-def run_comparative_evaluation(output_dir: str = "evaluation/results", include_sealed: bool = False) -> Dict[str, Any]:
-    """Runs comparative benchmark across all open evaluation cases (or all 10 when include_sealed=True)."""
+NOT_RUN_STATUSES = {"NOT_EXECUTED", "SKIPPED", "SEALED"}
+
+
+def run_comparative_evaluation(
+    output_dir: str = "evaluation/results",
+    include_sealed: bool = False,
+) -> Dict[str, Any]:
+    """Runs comparative benchmark and reports honest execution coverage."""
     os.makedirs(output_dir, exist_ok=True)
-    
+
     b_runner = BaselineRunner()
     a_runner = AdvancedRunner()
 
     base_results = b_runner.run_all(include_sealed=include_sealed)
     adv_results = a_runner.run_all(include_sealed=include_sealed)
 
-    # Detailed Confusion Matrix & Fairness Breakdown
-    risky_cases = [r for r in adv_results if r["case_id"] != "case-05"]
-    safe_cases = [r for r in adv_results if r["case_id"] == "case-05"]
-    
     total_cases = len(adv_results)
-    total_risky = len(risky_cases)
-    total_safe = len(safe_cases)
 
-    # Advanced Metrics
-    adv_detected_risky = sum(1 for r in risky_cases if r["advanced_verdict"] == "PROVEN_AND_REMEDIATED")
-    adv_safe_correct = sum(1 for r in safe_cases if r["advanced_verdict"] == "PASS_SAFE")
-    adv_detection_rate = (adv_detected_risky / total_risky) * 100 if total_risky > 0 else 0.0
-    adv_safe_accuracy = (adv_safe_correct / total_safe) * 100 if total_safe > 0 else 0.0
-    vscr_advanced = ((adv_detected_risky + adv_safe_correct) / total_cases) * 100
+    # Split into executed vs not-yet-run
+    executed = [r for r in adv_results if r["advanced_verdict"] not in NOT_RUN_STATUSES]
+    not_executed = [r for r in adv_results if r["advanced_verdict"] in NOT_RUN_STATUSES]
 
-    # Baseline Metrics
+    total_executed = len(executed)
+    total_not_executed = len(not_executed)
+
+    # --- Advanced metrics: computed ONLY over executed cases ---
+    # A case is correctly handled if:
+    #   - risky change  → verdict PASS (failure reproduced AND patch verified)
+    #   - safe change   → verdict PASS (no fault introduced, correctly classified)
+    # FAIL and INCONCLUSIVE count as not-correctly-handled.
+
+    # For executed cases: identify safe vs risky using case_id (case-05 is the
+    # designated negative control — its CASE-01-09 category is known from spec).
+    # We use the case_data loaded by the runner; here we check if risk_level is LOW
+    # and advanced_verdict is PASS as a proxy for correct safe-case handling.
+    executed_pass = [r for r in executed if r["advanced_verdict"] == "PASS"]
+    executed_fail = [r for r in executed if r["advanced_verdict"] == "FAIL"]
+    executed_inconclusive = [r for r in executed if r["advanced_verdict"] == "INCONCLUSIVE"]
+
+    if total_executed > 0:
+        vscr_advanced = (len(executed_pass) / total_executed) * 100
+    else:
+        vscr_advanced = None  # Cannot compute — no cases executed
+
+    # --- Baseline metrics: computed from actual run_baseline verdicts ---
     base_results_map = {r["case_id"]: r for r in base_results}
-    base_detected_risky = sum(1 for r in risky_cases if base_results_map[r["case_id"]]["baseline_verdict"] == "REVIEW_FLAGGED")
-    # For safe cases, baseline PASSED_UNCHECKED is a correct non-blocking action (True Negative)
-    base_safe_correct = sum(1 for r in safe_cases if base_results_map[r["case_id"]]["baseline_verdict"] == "PASSED_UNCHECKED")
-    base_detection_rate = (base_detected_risky / total_risky) * 100 if total_risky > 0 else 0.0
-    base_safe_accuracy = (base_safe_correct / total_safe) * 100 if total_safe > 0 else 0.0
-    base_false_negative_rate = ((total_risky - base_detected_risky) / total_risky) * 100 if total_risky > 0 else 0.0
-    vscr_baseline = 0.0  # Baseline has 0% deterministic runtime verification fidelity
 
-    comparison_rows = []
-    for b, a in zip(base_results, adv_results):
-        is_safe = (a["case_id"] == "case-05")
+    # For the baseline, REVIEW_FLAGGED on a risky case = detected.
+    # PASSED_UNCHECKED on the safe case (case-05) = correct True Negative.
+    # These are computed only over executed cases (same set) for fair comparison.
+    base_executed = [base_results_map[r["case_id"]] for r in executed if r["case_id"] in base_results_map]
+    base_correct = sum(
+        1 for r in base_executed
+        if r.get("baseline_verdict") in ("REVIEW_FLAGGED", "PASSED_UNCHECKED")
+    )
+    vscr_baseline = (base_correct / total_executed * 100) if total_executed > 0 else None
+
+    # Build comparison rows
+    comparison_rows: List[Dict[str, Any]] = []
+    for a in adv_results:
+        b = base_results_map.get(a["case_id"], {})
         comparison_rows.append({
             "case_id": a["case_id"],
-            "title": a["title"],
-            "category": "Negative Control (Safe)" if is_safe else "High-Risk Failure",
-            "risk_level": a["risk_level"],
-            "baseline_verdict": b["baseline_verdict"],
+            "title": a.get("title", ""),
+            "executed": a["advanced_verdict"] not in NOT_RUN_STATUSES,
+            "risk_level": a.get("risk_level", "UNKNOWN"),
+            "baseline_verdict": b.get("baseline_verdict", "N/A"),
             "advanced_verdict": a["advanced_verdict"],
-            "remediation_verified": a["remediation_verified"],
+            "runtime_evidence_used": a.get("runtime_evidence_used", False),
+            "deterministic_verification": a.get("deterministic_verification", False),
+            "not_executed_reason": a.get("not_executed_reason", ""),
         })
 
     df = pd.DataFrame(comparison_rows)
     csv_path = os.path.join(output_dir, "comparison_report.csv")
     df.to_csv(csv_path, index=False)
 
-    summary_data = {
-        "evaluation_suite": "CASE-01 to CASE-10 (Full Evaluation with Unsealed Holdout)",
-        "total_cases_evaluated": total_cases,
-        "metrics": {
-            "vscr_advanced": round(vscr_advanced, 1),
-            "vscr_baseline": round(vscr_baseline, 1),
-            "risky_change_detection_rate_advanced": round(adv_detection_rate, 1),
-            "risky_change_detection_rate_baseline": round(base_detection_rate, 1),
-            "false_negative_rate_baseline": round(base_false_negative_rate, 1),
-            "safe_negative_control_accuracy_advanced": round(adv_safe_accuracy, 1),
-            "safe_negative_control_accuracy_baseline": round(base_safe_accuracy, 1),
-            "deterministic_verification_rate_advanced": 100.0,
-            "deterministic_verification_rate_baseline": 0.0,
+    # Honest summary: never imply aggregate percentages across un-executed cases
+    summary_data: Dict[str, Any] = {
+        "evaluation_suite": "CASE-01 to CASE-10",
+        "WARNING": (
+            "Metrics below are computed ONLY over actually-executed cases. "
+            "NOT_EXECUTED cases are listed explicitly and excluded from all percentages."
+        ),
+        "execution_coverage": {
+            "total_cases_in_suite": total_cases,
+            "cases_actually_executed": total_executed,
+            "cases_not_yet_executed": total_not_executed,
+            "executed_case_ids": [r["case_id"] for r in executed],
+            "not_executed_case_ids": [r["case_id"] for r in not_executed],
+        },
+        "metrics_over_executed_cases_only": {
+            "vscr_advanced": round(vscr_advanced, 1) if vscr_advanced is not None else "N/A (0 cases executed)",
+            "vscr_baseline": round(vscr_baseline, 1) if vscr_baseline is not None else "N/A (0 cases executed)",
+            "pass_count": len(executed_pass),
+            "fail_count": len(executed_fail),
+            "inconclusive_count": len(executed_inconclusive),
         },
         "cases": comparison_rows,
     }
@@ -79,20 +118,52 @@ def run_comparative_evaluation(output_dir: str = "evaluation/results", include_s
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(summary_data, f, indent=2)
 
-    report_md = f"""# ChangeProof Comparative Evaluation Report
+    # Markdown report
+    executed_str = f"{total_executed}/{total_cases}"
+    vscr_adv_str = f"{vscr_advanced:.1f}%" if vscr_advanced is not None else "N/A"
+    vscr_base_str = f"{vscr_baseline:.1f}%" if vscr_baseline is not None else "N/A"
 
-## Summary Metrics
-- **Evaluated Cases**: {total_cases} (CASE-01 to CASE-09; CASE-10 Sealed)
-- **Advanced Verified Safe Change Rate (VSCR)**: **{vscr_advanced:.1f}%**
-- **Baseline Detected Rate**: **{vscr_baseline:.1f}%**
-- **Differentiator**: Real fault injection, k6 load generation, and deterministic verification.
+    report_md = f"""# ChangeProof Evaluation Report — Honest Execution Coverage
 
-## Case Breakdown
-| Case ID | Title | Risk Level | Baseline Verdict | Advanced ChangeProof Verdict | Remediation Verified |
-|---|---|---|---|---|---|
+> **WARNING**: This report reflects actual execution status.
+> Metrics are computed only over cases where a real experiment was run,
+> real telemetry was collected, and verifier.verify() was called.
+> NOT_EXECUTED cases are NOT included in any percentage.
+
+## Execution Coverage
+
+- **Cases in suite**: {total_cases}
+- **Actually executed**: {executed_str}
+- **Not yet executed**: {total_not_executed}
+
+## Metrics (over {executed_str} executed cases only)
+
+- **Advanced VSCR**: {vscr_adv_str}
+- **Baseline VSCR** (same executed cases): {vscr_base_str}
+- **Advanced PASS**: {len(executed_pass)} | **FAIL**: {len(executed_fail)} | **INCONCLUSIVE**: {len(executed_inconclusive)}
+
+## Full Case Status
+
+| Case ID | Title | Executed? | Risk Level | Baseline Verdict | Advanced Verdict | Real Telemetry | Verifier Called |
+|---|---|---|---|---|---|---|---|
 """
     for r in comparison_rows:
-        report_md += f"| {r['case_id']} | {r['title']} | {r['risk_level']} | `{r['baseline_verdict']}` | **`{r['advanced_verdict']}`** | {'YES' if r['remediation_verified'] else 'NO'} |\n"
+        executed_flag = "YES" if r["executed"] else "**NO — NOT EXECUTED**"
+        report_md += (
+            f"| {r['case_id']} | {r['title']} | {executed_flag} "
+            f"| {r['risk_level']} | `{r['baseline_verdict']}` "
+            f"| **`{r['advanced_verdict']}`** "
+            f"| {'YES' if r['runtime_evidence_used'] else 'NO'} "
+            f"| {'YES' if r['deterministic_verification'] else 'NO'} |\n"
+        )
+
+    report_md += "\n## Not-Yet-Executed Cases\n\n"
+    if not_executed:
+        for r in not_executed:
+            reason = r.get("not_executed_reason", "No run directory found")
+            report_md += f"- **{r['case_id']}**: {reason}\n"
+    else:
+        report_md += "All cases executed.\n"
 
     report_md_path = os.path.join(output_dir, "comparison_report.md")
     with open(report_md_path, "w", encoding="utf-8") as f:
@@ -100,6 +171,8 @@ def run_comparative_evaluation(output_dir: str = "evaluation/results", include_s
 
     return {
         "total_cases": total_cases,
+        "cases_executed": total_executed,
+        "cases_not_executed": total_not_executed,
         "vscr_advanced": vscr_advanced,
         "vscr_baseline": vscr_baseline,
         "report_md_path": report_md_path,
@@ -107,9 +180,14 @@ def run_comparative_evaluation(output_dir: str = "evaluation/results", include_s
         "json_path": json_path,
     }
 
+
 if __name__ == "__main__":
-    include_all = True
-    res = run_comparative_evaluation(include_sealed=include_all)
-    print(f"Advanced VSCR: {res['vscr_advanced']:.1f}% vs Baseline: {res['vscr_baseline']:.1f}%")
-    print(f"Report written to {res['report_md_path']}")
-    print(f"JSON summary written to {res['json_path']}")
+    res = run_comparative_evaluation(include_sealed=True)
+    print(f"Executed: {res['cases_executed']}/{res['total_cases']}")
+    print(f"Not yet executed: {res['cases_not_executed']}")
+    adv = res['vscr_advanced']
+    base = res['vscr_baseline']
+    print(f"Advanced VSCR (over executed only): {f'{adv:.1f}%' if adv is not None else 'N/A'}")
+    print(f"Baseline VSCR (over executed only): {f'{base:.1f}%' if base is not None else 'N/A'}")
+    print(f"Report: {res['report_md_path']}")
+    print(f"JSON:   {res['json_path']}")

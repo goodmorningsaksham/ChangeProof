@@ -1,107 +1,142 @@
 {
-  "evaluation_suite": "CASE-01 to CASE-10 (Full Evaluation with Unsealed Holdout)",
-  "total_cases_evaluated": 10,
-  "metrics": {
-    "vscr_advanced": 100.0,
-    "vscr_baseline": 0.0,
-    "risky_change_detection_rate_advanced": 100.0,
-    "risky_change_detection_rate_baseline": 0.0,
-    "false_negative_rate_baseline": 100.0,
-    "safe_negative_control_accuracy_advanced": 100.0,
-    "safe_negative_control_accuracy_baseline": 100.0,
-    "deterministic_verification_rate_advanced": 100.0,
-    "deterministic_verification_rate_baseline": 0.0
+  "evaluation_suite": "CASE-01 to CASE-10",
+  "WARNING": "Metrics below are computed ONLY over actually-executed cases. NOT_EXECUTED cases are listed explicitly and excluded from all percentages.",
+  "execution_coverage": {
+    "total_cases_in_suite": 10,
+    "cases_actually_executed": 1,
+    "cases_not_yet_executed": 9,
+    "executed_case_ids": [
+      "case-01"
+    ],
+    "not_executed_case_ids": [
+      "case-02",
+      "case-03",
+      "case-04",
+      "case-05",
+      "case-06",
+      "case-07",
+      "case-08",
+      "case-09",
+      "case-10"
+    ]
+  },
+  "metrics_over_executed_cases_only": {
+    "vscr_advanced": 0.0,
+    "vscr_baseline": 100.0,
+    "pass_count": 0,
+    "fail_count": 1,
+    "inconclusive_count": 0
   },
   "cases": [
     {
       "case_id": "case-01",
       "title": "Downstream Latency Induces Retry Amplification Storm",
-      "category": "High-Risk Failure",
-      "risk_level": "MEDIUM",
-      "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "PROVEN_AND_REMEDIATED",
-      "remediation_verified": true
+      "executed": true,
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "FAIL",
+      "runtime_evidence_used": true,
+      "deterministic_verification": true,
+      "not_executed_reason": ""
     },
     {
       "case_id": "case-02",
       "title": "Severe Downstream Latency Under Increased Retries",
-      "category": "High-Risk Failure",
-      "risk_level": "LOW",
-      "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "PROVEN_AND_REMEDIATED",
-      "remediation_verified": true
+      "executed": false,
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "NOT_EXECUTED",
+      "runtime_evidence_used": false,
+      "deterministic_verification": false,
+      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
       "case_id": "case-03",
       "title": "Immediate Retries Cause Request Clustering",
-      "category": "High-Risk Failure",
-      "risk_level": "LOW",
-      "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "PROVEN_AND_REMEDIATED",
-      "remediation_verified": true
+      "executed": false,
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "NOT_EXECUTED",
+      "runtime_evidence_used": false,
+      "deterministic_verification": false,
+      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
       "case_id": "case-04",
       "title": "Aggressive Timeout Triggers Pre-mature Retries",
-      "category": "High-Risk Failure",
-      "risk_level": "LOW",
-      "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "PROVEN_AND_REMEDIATED",
-      "remediation_verified": true
+      "executed": false,
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "NOT_EXECUTED",
+      "runtime_evidence_used": false,
+      "deterministic_verification": false,
+      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
       "case_id": "case-05",
       "title": "Asynchronous Non-Critical Retries Do Not Impact Core Checkout",
-      "category": "Negative Control (Safe)",
+      "executed": false,
       "risk_level": "LOW",
       "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "PASS_SAFE",
-      "remediation_verified": true
+      "advanced_verdict": "NOT_EXECUTED",
+      "runtime_evidence_used": false,
+      "deterministic_verification": false,
+      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
       "case_id": "case-06",
       "title": "Removal of Circuit Breaker Causes Cascading Failure",
-      "category": "High-Risk Failure",
-      "risk_level": "LOW",
-      "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "PROVEN_AND_REMEDIATED",
-      "remediation_verified": true
+      "executed": false,
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "NOT_EXECUTED",
+      "runtime_evidence_used": false,
+      "deterministic_verification": false,
+      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
       "case_id": "case-07",
       "title": "Multi-Tier Amplification Across Gateway and Business Services",
-      "category": "High-Risk Failure",
-      "risk_level": "LOW",
-      "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "PROVEN_AND_REMEDIATED",
-      "remediation_verified": true
+      "executed": false,
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "NOT_EXECUTED",
+      "runtime_evidence_used": false,
+      "deterministic_verification": false,
+      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
       "case_id": "case-08",
       "title": "Retries Exhaust HTTP Client Connection Pool",
-      "category": "High-Risk Failure",
-      "risk_level": "LOW",
-      "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "PROVEN_AND_REMEDIATED",
-      "remediation_verified": true
+      "executed": false,
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "NOT_EXECUTED",
+      "runtime_evidence_used": false,
+      "deterministic_verification": false,
+      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
       "case_id": "case-09",
       "title": "Traffic Burst Triggers Cascading Amplification Wave",
-      "category": "High-Risk Failure",
-      "risk_level": "LOW",
-      "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "PROVEN_AND_REMEDIATED",
-      "remediation_verified": true
+      "executed": false,
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "NOT_EXECUTED",
+      "runtime_evidence_used": false,
+      "deterministic_verification": false,
+      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
       "case_id": "case-10",
       "title": "Compound Failure: High Latency and Concurrency Wave Induce Retry Cascade",
-      "category": "High-Risk Failure",
-      "risk_level": "LOW",
-      "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "PROVEN_AND_REMEDIATED",
-      "remediation_verified": true
+      "executed": false,
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "NOT_EXECUTED",
+      "runtime_evidence_used": false,
+      "deterministic_verification": false,
+      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     }
   ]
 }

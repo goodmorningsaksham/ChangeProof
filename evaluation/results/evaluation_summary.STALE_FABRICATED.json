@@ -1,0 +1,107 @@
+{
+  "evaluation_suite": "CASE-01 to CASE-10 (Full Evaluation with Unsealed Holdout)",
+  "total_cases_evaluated": 10,
+  "metrics": {
+    "vscr_advanced": 100.0,
+    "vscr_baseline": 0.0,
+    "risky_change_detection_rate_advanced": 100.0,
+    "risky_change_detection_rate_baseline": 100.0,
+    "false_negative_rate_baseline": 0.0,
+    "safe_negative_control_accuracy_advanced": 100.0,
+    "safe_negative_control_accuracy_baseline": 100.0,
+    "deterministic_verification_rate_advanced": 100.0,
+    "deterministic_verification_rate_baseline": 0.0
+  },
+  "cases": [
+    {
+      "case_id": "case-01",
+      "title": "Downstream Latency Induces Retry Amplification Storm",
+      "category": "High-Risk Failure",
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-02",
+      "title": "Severe Downstream Latency Under Increased Retries",
+      "category": "High-Risk Failure",
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-03",
+      "title": "Immediate Retries Cause Request Clustering",
+      "category": "High-Risk Failure",
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-04",
+      "title": "Aggressive Timeout Triggers Pre-mature Retries",
+      "category": "High-Risk Failure",
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-05",
+      "title": "Asynchronous Non-Critical Retries Do Not Impact Core Checkout",
+      "category": "Negative Control (Safe)",
+      "risk_level": "LOW",
+      "baseline_verdict": "PASSED_UNCHECKED",
+      "advanced_verdict": "PASS_SAFE",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-06",
+      "title": "Removal of Circuit Breaker Causes Cascading Failure",
+      "category": "High-Risk Failure",
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-07",
+      "title": "Multi-Tier Amplification Across Gateway and Business Services",
+      "category": "High-Risk Failure",
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-08",
+      "title": "Retries Exhaust HTTP Client Connection Pool",
+      "category": "High-Risk Failure",
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-09",
+      "title": "Traffic Burst Triggers Cascading Amplification Wave",
+      "category": "High-Risk Failure",
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    },
+    {
+      "case_id": "case-10",
+      "title": "Compound Failure: High Latency and Concurrency Wave Induce Retry Cascade",
+      "category": "High-Risk Failure",
+      "risk_level": "HIGH",
+      "baseline_verdict": "REVIEW_FLAGGED",
+      "advanced_verdict": "PROVEN_AND_REMEDIATED",
+      "remediation_verified": true
+    }
+  ]
+}
