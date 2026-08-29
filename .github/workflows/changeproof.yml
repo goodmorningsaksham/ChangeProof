@@ -63,7 +63,7 @@ jobs:
 
       - name: Post Proof Certificate to PR Comment
         uses: actions/github-script@v7
-        if: github.event_name == 'pull_request' && always()
+        if: always()
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -77,11 +77,12 @@ jobs:
               const footer = `\n\n---\n### 📦 Artifact Reference\n- **Capsule Artifact**: Download \`changeproof-reproduction-capsule\` from the Workflow Run Summary.\n- **Replay Verification**:\n  \`\`\`bash\n  python changeproof/replay.py capsules/case-01.zip\n  \`\`\``;
               
               const body = certContent + footer;
+              const issueNumber = context.issue.number || 1;
               
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number,
+                issue_number: issueNumber,
                 body: body
               });
             }
