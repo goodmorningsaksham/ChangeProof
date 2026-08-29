@@ -149,8 +149,8 @@ def run_live_phase(
     try:
         toxi.reset()
         print("Toxiproxy reset successful.")
-        toxi.add_latency("payment_proxy", latency_ms=latency_ms, jitter_ms=100, toxicity=1.0)
-        print(f"Toxiproxy latency toxic added: {latency_ms}ms (jitter 100ms) on payment_proxy")
+        toxi.add_latency("payment-proxy", latency_ms=latency_ms, jitter_ms=100, toxicity=1.0)
+        print(f"Toxiproxy latency toxic added: {latency_ms}ms (jitter 100ms) on payment-proxy")
     except Exception as e:
         print(f"Toxiproxy configuration error: {e}")
 
