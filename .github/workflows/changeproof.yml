@@ -37,13 +37,11 @@ jobs:
       - name: Extract PR Diff
         id: extract_diff
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} > pr.diff
-          else
-            git diff HEAD~1 HEAD > pr.diff || echo "+RETRIES_MAX = 8" > pr.diff
-          fi
-          echo "Extracted PR Diff:"
+          git fetch origin main
+          git diff origin/main...HEAD > pr.diff
+          echo "=== EXTRACTED DIFF ==="
           cat pr.diff
+          echo "======================"
           echo "diff_size=$(wc -l < pr.diff)" >> $GITHUB_OUTPUT
 
       - name: Run ChangeProof CI Pipeline
