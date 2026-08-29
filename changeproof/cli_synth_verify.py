@@ -396,7 +396,7 @@ def main():
         with open(args.diff, "r", encoding="utf-8") as f:
             diff_text = f.read()
     if not diff_text.strip():
-        diff_text = "+RETRIES_MAX = 8\n+RETRY_BACKOFF_FACTOR = 0.0\n"
+        diff_text = "--- a/app/checkout/main.py\n+++ b/app/checkout/main.py\n@@ -10,3 +10,3 @@\n-RETRIES_MAX = 3\n-RETRY_BACKOFF_FACTOR = 0.5\n+RETRIES_MAX = 8\n+RETRY_BACKOFF_FACTOR = 0.0\n"
 
     comp_file = args.compose_file
     if not os.path.exists(comp_file) and os.path.exists("docker-compose.alt.yml"):
@@ -419,4 +419,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
