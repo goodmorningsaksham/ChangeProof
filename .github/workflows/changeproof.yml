@@ -37,8 +37,8 @@ jobs:
       - name: Extract PR Diff
         id: extract_diff
         run: |
-          git fetch origin
-          git diff origin/main...HEAD > pr.diff
+          git fetch origin main
+          git diff origin/main HEAD > pr.diff
           echo "=== EXTRACTED DIFF ==="
           cat pr.diff
           echo "======================"
