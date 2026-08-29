@@ -95,7 +95,9 @@ class AdvancedRunner:
                 "risk_level": "LOW",
                 "advanced_verdict": "PASS_SAFE",
                 "runtime_evidence_used": False,
-                "deterministic_verification": True,
+                "verifier_called": False,
+                "deterministic_classification": True,
+                "verification_mechanism": "Static AST Risk Assessment",
                 "not_executed_reason": "",
             }
 
@@ -111,7 +113,9 @@ class AdvancedRunner:
                 "risk_level": risk_res["level"],
                 "advanced_verdict": "NOT_EXECUTED",
                 "runtime_evidence_used": False,
-                "deterministic_verification": False,
+                "verifier_called": False,
+                "deterministic_classification": True,
+                "verification_mechanism": "None (Not Executed)",
                 "base_metrics_csv": base_csv,
                 "patched_metrics_csv": patched_csv,
                 "not_executed_reason": (
@@ -130,7 +134,9 @@ class AdvancedRunner:
             "risk_level": risk_res["level"],
             "advanced_verdict": ver_result.status,  # PASS / FAIL / INCONCLUSIVE
             "runtime_evidence_used": True,
-            "deterministic_verification": True,
+            "verifier_called": True,
+            "deterministic_classification": True,
+            "verification_mechanism": "Deterministic Runtime Verifier",
             "base_metrics_csv": base_csv,
             "patched_metrics_csv": patched_csv,
             "verifier_reason": ver_result.reason,

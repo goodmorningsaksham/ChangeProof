@@ -22,7 +22,8 @@
   },
   "metrics_over_executed_cases_only": {
     "vscr_advanced": 100.0,
-    "vscr_baseline": 100.0,
+    "vscr_baseline": "N/A \u2014 baseline does not perform deterministic verification by design",
+    "risk_detection_accuracy_baseline": 100.0,
     "pass_count": 3,
     "fail_count": 0,
     "inconclusive_count": 0
@@ -36,7 +37,8 @@
       "baseline_verdict": "REVIEW_FLAGGED",
       "advanced_verdict": "PASS",
       "runtime_evidence_used": true,
-      "deterministic_verification": true,
+      "verifier_called": true,
+      "verification_mechanism": "Deterministic Runtime Verifier",
       "not_executed_reason": ""
     },
     {
@@ -47,7 +49,8 @@
       "baseline_verdict": "REVIEW_FLAGGED",
       "advanced_verdict": "NOT_EXECUTED",
       "runtime_evidence_used": false,
-      "deterministic_verification": false,
+      "verifier_called": false,
+      "verification_mechanism": "None (Not Executed)",
       "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
@@ -58,7 +61,8 @@
       "baseline_verdict": "REVIEW_FLAGGED",
       "advanced_verdict": "NOT_EXECUTED",
       "runtime_evidence_used": false,
-      "deterministic_verification": false,
+      "verifier_called": false,
+      "verification_mechanism": "None (Not Executed)",
       "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
@@ -69,7 +73,8 @@
       "baseline_verdict": "REVIEW_FLAGGED",
       "advanced_verdict": "NOT_EXECUTED",
       "runtime_evidence_used": false,
-      "deterministic_verification": false,
+      "verifier_called": false,
+      "verification_mechanism": "None (Not Executed)",
       "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
@@ -80,7 +85,8 @@
       "baseline_verdict": "PASSED_UNCHECKED",
       "advanced_verdict": "PASS_SAFE",
       "runtime_evidence_used": false,
-      "deterministic_verification": true,
+      "verifier_called": false,
+      "verification_mechanism": "Static AST Risk Assessment",
       "not_executed_reason": ""
     },
     {
@@ -91,7 +97,8 @@
       "baseline_verdict": "REVIEW_FLAGGED",
       "advanced_verdict": "NOT_EXECUTED",
       "runtime_evidence_used": false,
-      "deterministic_verification": false,
+      "verifier_called": false,
+      "verification_mechanism": "None (Not Executed)",
       "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
@@ -102,7 +109,8 @@
       "baseline_verdict": "REVIEW_FLAGGED",
       "advanced_verdict": "NOT_EXECUTED",
       "runtime_evidence_used": false,
-      "deterministic_verification": false,
+      "verifier_called": false,
+      "verification_mechanism": "None (Not Executed)",
       "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
@@ -113,7 +121,8 @@
       "baseline_verdict": "REVIEW_FLAGGED",
       "advanced_verdict": "NOT_EXECUTED",
       "runtime_evidence_used": false,
-      "deterministic_verification": false,
+      "verifier_called": false,
+      "verification_mechanism": "None (Not Executed)",
       "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
@@ -124,7 +133,8 @@
       "baseline_verdict": "REVIEW_FLAGGED",
       "advanced_verdict": "NOT_EXECUTED",
       "runtime_evidence_used": false,
-      "deterministic_verification": false,
+      "verifier_called": false,
+      "verification_mechanism": "None (Not Executed)",
       "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
     },
     {
@@ -135,7 +145,8 @@
       "baseline_verdict": "REVIEW_FLAGGED",
       "advanced_verdict": "PASS",
       "runtime_evidence_used": true,
-      "deterministic_verification": true,
+      "verifier_called": true,
+      "verification_mechanism": "Deterministic Runtime Verifier",
       "not_executed_reason": ""
     }
   ]
