@@ -1,4 +1,4 @@
-"""Checkout Service — Core business workflow with configurable downstream retries."""
+﻿"""Checkout Service â€” Core business workflow with configurable downstream retries."""
 import os
 import time
 from typing import Optional
@@ -13,9 +13,9 @@ app = FastAPI(title="Checkout Service", version="1.0.0")
 
 # Configuration (Defaults for baseline behavior)
 PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL", "http://toxiproxy:18002")
-RETRIES_MAX = int(os.getenv("RETRIES_MAX", "3"))
+RETRIES_MAX = int(os.getenv("RETRIES_MAX", "3"))  # Baseline: safe retry count
 RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "1.0"))
-RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.5"))
+RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.5"))  # Baseline: exponential backoff
 
 # Prometheus Metrics
 CHECKOUT_REQUESTS_TOTAL = Counter(

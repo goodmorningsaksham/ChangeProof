@@ -1,13 +1,17 @@
-"""Deterministic AST and regex risk assessor for PR diffs."""
+"""Deterministic AST and regex risk assessor for PR diffs with policy store integration."""
 import re
 from typing import Dict, Any, List
+from changeproof.policy_store import load_policies
 
 class RiskAssessor:
-    def assess_diff(self, diff_text: str) -> Dict[str, Any]:
-        """Calculates risk score based on deterministic signals in the diff.
+    def __init__(self, policy_path: str = "policy_store.json"):
+        self.policy_path = policy_path
 
-        All patterns are anchored to the unified-diff addition prefix (^\\+) with
-        a negative lookahead (?!\\+) to exclude the '+++ b/...' file-header lines,
+    def assess_diff(self, diff_text: str) -> Dict[str, Any]:
+        """Calculates risk score based on deterministic signals in the diff and stored human policies.
+
+        All patterns are anchored to the unified-diff addition prefix (^\+) with
+        a negative lookahead (?!\+) to exclude the '+++ b/...' file-header lines,
         so that only genuine added lines trigger signals.
 
         Context lines (space-prefixed) and removed lines (^-) never match.
@@ -37,10 +41,25 @@ class RiskAssessor:
             score += 15
             signals_detected.append("Downstream HTTP dependency modification")
 
-        # Signal 5: Test-only discount.
+        # Signal 5: Violation of stored human governance policies
+        policies = load_policies(self.policy_path)
+        for p in policies:
+            rule_text = p.get("rule", "").lower()
+            # Match e.g. "retries must not exceed 4" or "payment-service retries must not exceed 4"
+            match = re.search(r"retries must not exceed (\d+)", rule_text)
+            if match:
+                limit = int(match.group(1))
+                diff_m = re.search(r'^\+(?!\+).*(?:RETRIES_MAX|max_retries)\s*=.*(["\']?(\d+)["\']?)', diff_text, re.MULTILINE)
+                if diff_m:
+                    val = int(diff_m.group(2))
+                    if val > limit:
+                        score += 35
+                        pol_id = p.get("policy_id", "POL")
+                        signals_detected.append(f"Stored Human Policy Violation ({pol_id}): retries ({val}) exceed human limit ({limit})")
+
+        # Signal 6: Test-only discount.
         # Only fires when the diff contains at least one +++ / --- file header
-        # AND every such header points into the tests/ directory.  The
-        # non-empty guard prevents vacuous-truth matches on headerless diffs.
+        # AND every such header points into the tests/ directory.
         file_headers = [
             line for line in diff_text.splitlines()
             if line.startswith("+++ ") or line.startswith("--- ")

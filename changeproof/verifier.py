@@ -1,4 +1,4 @@
-"""Deterministic assertion verifier for ChangeProof — Zero LLM calls."""
+"""Deterministic assertion verifier for ChangeProof Ã¢â‚¬â€ Zero LLM calls."""
 import os
 import re
 import json
@@ -45,9 +45,9 @@ def _load_run_context(path_str: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
                     manifest = json.load(f)
             except Exception:
                 pass
-        for f in os.listdir(path_str):
-            if f.endswith(".csv"):
-                csv_path = os.path.join(path_str, f)
+        for fname in os.listdir(path_str):
+            if fname.endswith(".csv"):
+                csv_path = os.path.join(path_str, fname)
                 break
     else:
         # Path is a CSV file
@@ -79,16 +79,19 @@ def _load_run_context(path_str: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
 
 def extract_metric_value(metric_name: str, condition_str: str, df: pd.DataFrame, manifest: Dict[str, Any]) -> float:
-    """Extracts or computes the scalar value for a given metric condition."""
-    # 1. retries_per_request (normalized ratio)
-    if metric_name in ("retries_per_request", "retry_to_request_ratio", "retry_ratio"):
+    """Extracts or computes the scalar value for a given metric condition prioritizing authoritative manifest values."""
+    # 1. retries_per_request (normalized amplification ratio)
+    if metric_name in ("retries_per_request", "retry_to_request_ratio", "retry_ratio", "amplification_factor", "amplification_ratio"):
+        if "retries_per_request" in manifest:
+            return float(manifest["retries_per_request"])
         if "retry_to_request_ratio" in manifest:
             return float(manifest["retry_to_request_ratio"])
-        delta_retries = manifest.get("delta_retries_direct") or manifest.get("delta_retries")
-        delta_requests = manifest.get("delta_requests_direct") or manifest.get("delta_requests")
+        if "amplification_ratio" in manifest:
+            return float(manifest["amplification_ratio"])
+        delta_retries = manifest.get("retries_counted") or manifest.get("delta_retries_direct") or manifest.get("delta_retries")
+        delta_requests = manifest.get("total_requests") or manifest.get("delta_requests_direct") or manifest.get("delta_requests")
         if delta_retries is not None and delta_requests is not None and float(delta_requests) > 0:
-            return float(delta_retries) / float(delta_requests)
-        # Fallback to DataFrame computation
+            return float(float(delta_retries) / float(delta_requests))
         if not df.empty and "metric_name" in df.columns:
             r_df = df[df["metric_name"] == "retry_count_total"]
             q_df = df[df["metric_name"] == "checkout_requests_total"]
@@ -98,6 +101,63 @@ def extract_metric_value(metric_name: str, condition_str: str, df: pd.DataFrame,
                 if q_delta > 0:
                     return float(r_delta / q_delta)
         return 0.0
+
+    # 2. total_requests (sample size)
+    if metric_name in ("total_requests", "requests_total", "checkout_requests_total"):
+        if "total_requests" in manifest:
+            return float(manifest["total_requests"])
+        req_val = manifest.get("delta_requests_direct") or manifest.get("delta_requests")
+        if req_val is not None:
+            return float(req_val)
+        if not df.empty and "metric_name" in df.columns:
+            q_df = df[df["metric_name"] == "checkout_requests_total"]
+            if not q_df.empty:
+                return max(float(q_df["value"].max() - q_df["value"].min()), 0.0)
+        return 0.0
+
+    # 3. throughput_req_per_sec
+    if metric_name in ("throughput_req_per_sec", "throughput"):
+        if "throughput_req_per_sec" in manifest:
+            return float(manifest["throughput_req_per_sec"])
+        if "throughput" in manifest:
+            return float(manifest["throughput"])
+        req_val = manifest.get("total_requests") or manifest.get("delta_requests_direct") or manifest.get("delta_requests")
+        duration = manifest.get("duration_s") or manifest.get("experiment_duration_s") or manifest.get("duration_seconds")
+        if req_val is not None and duration is not None and float(duration) > 0:
+            return float(float(req_val) / float(duration))
+        if not df.empty and "timestamp" in df.columns and len(df) > 1:
+            dur = max(float(df["timestamp"].max() - df["timestamp"].min()), 1.0)
+            if "metric_name" in df.columns:
+                q_df = df[df["metric_name"] == "checkout_requests_total"]
+                if not q_df.empty and len(q_df) > 1:
+                    delta_req = max(float(q_df["value"].max() - q_df["value"].min()), 0.0)
+                    return float(delta_req / dur)
+        return 0.0
+
+    # 4. Rate per min (prioritize authoritative direct/full-duration rate from manifest if present)
+    if "rate_per_min" in condition_str or metric_name == "rate_per_min":
+        if "rate_per_min" in manifest:
+            return float(manifest["rate_per_min"])
+        if "rate_per_min_direct" in manifest:
+            return float(manifest["rate_per_min_direct"])
+        if "rate_per_min_absolute" in manifest:
+            return float(manifest["rate_per_min_absolute"])
+        delta_retries = manifest.get("retries_counted") or manifest.get("delta_retries_direct") or manifest.get("delta_retries")
+        duration = manifest.get("duration_s") or manifest.get("experiment_duration_s") or manifest.get("duration_seconds")
+        if delta_retries is not None and duration is not None and float(duration) > 0:
+            return float(float(delta_retries) / float(duration) * 60.0)
+
+    # 5. Standard DataFrame / Counter metric
+    if not df.empty:
+        sub_df = df[df["metric_name"] == metric_name] if "metric_name" in df.columns else df
+        if not sub_df.empty:
+            return compute_metric_aggregate(sub_df, condition_str)
+
+    # Manifest rate fallback if available
+    if "rate_per_min" in condition_str and ("rate_per_min_direct" in manifest or "rate_per_min_csv" in manifest):
+        return float(manifest.get("rate_per_min_direct") or manifest.get("rate_per_min_csv") or 0.0)
+
+    return 0.0
 
     # 2. total_requests (sample size)
     if metric_name in ("total_requests", "requests_total", "checkout_requests_total"):

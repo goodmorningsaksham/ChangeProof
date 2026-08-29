@@ -13,7 +13,7 @@ import glob
 import yaml
 import json
 import pandas as pd
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from changeproof.risk_assessor import RiskAssessor
 from changeproof.verifier import verify
 

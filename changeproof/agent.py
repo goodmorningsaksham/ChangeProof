@@ -7,6 +7,8 @@ from changeproof.tools import (
 )
 from changeproof.risk_assessor import RiskAssessor
 from changeproof.context_builder import ContextBuilder
+from changeproof.experiment_synthesizer import ExperimentSynthesizer
+from changeproof.hypothesis_evaluator import generate_candidate_hypotheses
 
 SYSTEM_PROMPT = """You are the ChangeProof Reliability Investigator Agent.
 Your role is to evaluate high-risk code changes by constructing counterfactual experiments,
@@ -29,6 +31,7 @@ Rules:
 - You propose; the deterministic verifier decides.
 """
 
+
 class ChangeProofAgent:
     def __init__(self, run_dir: str = "runs/agent_run"):
         self.run_dir = run_dir
@@ -41,9 +44,9 @@ class ChangeProofAgent:
             f.write(json.dumps(entry) + "\n")
 
     def run_investigation(self, pr_diff: str) -> Dict[str, Any]:
-        """Runs grounded investigation on the PR diff."""
+        """Runs grounded investigation on the PR diff with multi-hypothesis formulation."""
         self.log_action("start", {"diff_length": len(pr_diff)})
-        
+
         # 1. Risk Assessment
         assessor = RiskAssessor()
         risk_scorecard = assessor.assess_diff(pr_diff)
@@ -54,22 +57,37 @@ class ChangeProofAgent:
         context = builder.build_context(pr_diff)
         self.log_action("context_built", {"topology_services": list(context["topology"]["services"].keys())})
 
-        # 3. Grounded Hypothesis Formulation
-        hypotheses = [
-            {
-                "id": "H1",
-                "label": "retry_amplification",
-                "description": "Aggressive downstream retries amplify load when payment service experiences latency",
-                "grounding": {
-                    "code_evidence": "checkout/main.py increases RETRIES_MAX",
-                    "topology_evidence": "checkout communicates with payment over HTTP",
-                },
-                "rank": 1,
-                "confidence": "HIGH",
-            }
-        ]
+        # 3. Dynamic Topology-Driven Experiment Synthesis
+        synthesizer = ExperimentSynthesizer()
+        proxy_name = "payment-proxy"
+        calibrated_latency_ms = 1500
+        synthesized_spec: Dict[str, Any] = {}
+
+        try:
+            synthesized_spec = synthesizer.synthesize(pr_diff=pr_diff, case_id="agent-investigation-spec")
+            fault_info = synthesized_spec.get("fault", {})
+            toxic_info = fault_info.get("toxic", {}).get("attributes", {})
+            proxy_name = fault_info.get("proxy", "payment-proxy")
+            calibrated_latency_ms = toxic_info.get("latency", 1500)
+        except Exception:
+            pass
+
+        # 4. Multi-Signal Hypothesis Formulation (one grounded hypothesis per detected signal)
+        hypotheses = generate_candidate_hypotheses(
+            signals=risk_scorecard.get("signals", []),
+            proxy_name=proxy_name,
+            calibrated_latency_ms=calibrated_latency_ms,
+        )
+
+        # Attach the synthesized spec to the primary hypothesis
+        if hypotheses and synthesized_spec:
+            hypotheses[0]["synthesized_spec"] = synthesized_spec
+
         propose_hypothesis(hypotheses, output_path=os.path.join(self.run_dir, "hypothesis.json"))
-        self.log_action("hypothesis_proposed", {"selected": "H1"})
+        self.log_action("hypotheses_proposed", {
+            "count": len(hypotheses),
+            "hypotheses": hypotheses,
+        })
 
         return {
             "status": "INVESTIGATION_COMPLETED",

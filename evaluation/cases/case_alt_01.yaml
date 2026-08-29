@@ -1,0 +1,56 @@
+id: case-alt-01
+version: '1.1'
+title: 'Topology-Synthesized: Downstream Latency Induces Retry Amplification (inventory
+  -> warehouse)'
+description: 'Automated synthesis: inventory-service calls warehouse-service over
+  warehouse-proxy. Injected latency (1500ms) calibrated against client timeout to
+  reproduce retry storm.'
+target:
+  compose_file: docker-compose.alt.yml
+  git_commit: alt-topology-verify
+fault:
+  tool: toxiproxy
+  proxy: warehouse-proxy
+  admin_url: http://localhost:8474
+  toxic:
+    type: latency
+    attributes:
+      latency: 1500
+      jitter: 75
+workload:
+  target_service: gateway-service
+  tool: k6
+  script: workloads/checkout_load.js
+  duration: 45s
+  vus: 10
+  rps_target: 30
+measurements:
+  prometheus_url: http://localhost:9090
+  scrape_interval_s: 1
+  metrics:
+  - name: retry_count_total
+    labels:
+      service: inventory
+      target: warehouse
+  - name: http_errors_total
+    labels:
+      service: inventory
+  - name: inventory_requests_total
+    labels:
+      service: inventory
+assertions:
+  pre_patch:
+  - metric: retries_per_request
+    condition: '> 2.0'
+    description: Retry amplification storm visible as >2.0 retries per failed request
+      on inventory
+  - metric: total_requests
+    condition: '>= 100'
+    description: Sufficient workload request sample size under failure
+  post_patch:
+  - metric: retries_per_request
+    condition: <= 1.1
+    description: Retry count bounded to <=1.1 retries per failed request after remediation
+  - metric: total_requests
+    condition: '>= 100'
+    description: Sufficient workload request sample size under failure
