@@ -46,7 +46,7 @@ async def run_live_http_workload(url: str, total_requests: int = 500, concurrenc
     latencies = []
 
     sem = asyncio.Semaphore(concurrency)
-    payload = {"item_id": "item_123", "amount": 99.99, "user_id": "u_live_ci"}
+    payload = {"item_id": "item_123", "quantity": 1, "amount": 99.99, "user_id": "u_live_ci"}
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
         async def send_req(i: int):
