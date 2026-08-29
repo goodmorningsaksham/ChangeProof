@@ -141,8 +141,12 @@ Change was verified safe by deterministic AST analysis. No counterfactual fault 
             import zipfile
             with zipfile.ZipFile(cap_fallback, 'r') as zf:
                 zf.extractall(output_dir)
-            base_csv = os.path.join(output_dir, "metrics_pre.csv")
-            patched_csv = os.path.join(output_dir, "metrics_post.csv")
+            if os.path.exists(os.path.join(output_dir, "metrics_base.csv")):
+                base_csv = os.path.join(output_dir, "metrics_base.csv")
+                patched_csv = os.path.join(output_dir, "metrics_patched.csv")
+            else:
+                base_csv = os.path.join(output_dir, "metrics_pre.csv")
+                patched_csv = os.path.join(output_dir, "metrics_post.csv")
         else:
             base_csv = "runs/case-01_base_corrected2_1787964332/metrics_base.csv"
             patched_csv = "runs/case-01_patched_corrected_1787964030/metrics_patched.csv"
