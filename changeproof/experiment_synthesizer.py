@@ -356,10 +356,12 @@ class ExperimentSynthesizer:
         compose_data = self._load_compose()
         
         changed_service = self.resolve_changed_service(pr_diff, compose_data)
+        changed_file = self.resolve_changed_file(pr_diff, changed_service)
         target_service, target_port = self.resolve_downstream_dependency(changed_service, compose_data, pr_diff)
         proxy_name, admin_url = self.resolve_fault_proxy(changed_service, target_service, target_port, compose_data)
         latency_ms, jitter_ms = self.resolve_fault_magnitude(pr_diff, compose_data, changed_service)
         workload_target = self.resolve_workload_target(compose_data)
+        entrypoint_route, entrypoint_payload = self.resolve_entrypoint_route(workload_target, compose_data)
 
         changed_short = _clean_service_name(changed_service)
         target_short = _clean_service_name(target_service)
@@ -375,6 +377,8 @@ class ExperimentSynthesizer:
             "target": {
                 "compose_file": self.compose_path,
                 "git_commit": git_commit,
+                "changed_service": changed_service,
+                "changed_file": changed_file,
             },
             "fault": {
                 "tool": "toxiproxy",
@@ -390,11 +394,14 @@ class ExperimentSynthesizer:
             },
             "workload": {
                 "target_service": workload_target,
+                "entrypoint_route": entrypoint_route,
+                "entrypoint_payload": entrypoint_payload,
                 "tool": "k6",
                 "script": "workloads/checkout_load.js",
-                "duration": "45s",
+                "duration": "15s",
                 "vus": 10,
-                "rps_target": 30,
+                "rps_target": 10,
+                "num_requests": 150,
             },
             "measurements": {
                 "prometheus_url": "http://localhost:9090",
@@ -457,6 +464,7 @@ class ExperimentSynthesizer:
         with open(output_path, "w", encoding="utf-8") as f:
             yaml.dump(spec, f, sort_keys=False)
         return spec
+
 
 
 
