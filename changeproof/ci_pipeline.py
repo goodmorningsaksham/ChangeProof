@@ -143,11 +143,11 @@ def run_live_phase(
     print(f"=======================================================")
     
     # 1. Reset and configure Toxiproxy
-    toxi = ToxiproxyClient(host="localhost", port=8474)
+    toxi = ToxiproxyClient(admin_url="http://localhost:8474")
     try:
         toxi.reset()
         print("Toxiproxy reset successful.")
-        toxi.add_latency("payment_proxy", latency=latency_ms, jitter=100, toxicity=1.0)
+        toxi.add_latency("payment_proxy", latency_ms=latency_ms, jitter_ms=100, toxicity=1.0)
         print(f"Toxiproxy latency toxic added: {latency_ms}ms (jitter 100ms) on payment_proxy")
     except Exception as e:
         print(f"Toxiproxy configuration error: {e}")
@@ -399,12 +399,13 @@ Change was verified safe by deterministic AST analysis. No counterfactual fault 
     cert_gen.generate_and_save(cert_ctx, cert_path)
 
     # Package reproduction capsule
+    import shutil
+    shutil.copy(spec_path, os.path.join(output_dir, "experiment.yaml"))
     packager = CapsulePackager(capsules_dir=capsules_dir)
-    packager.package(
+    packager.create_capsule(
+        experiment_id="case-01",
         run_dir=output_dir,
-        spec_path=spec_path,
-        patch_path=None,
-        output_filename="case-01.zip",
+        git_commit_base=git_commit,
     )
 
     phase6_md = f"""### 📦 Phase 6: Reproduction Capsule & Proof Certificate
