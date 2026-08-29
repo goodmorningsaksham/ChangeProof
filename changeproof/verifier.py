@@ -18,20 +18,29 @@ class VerificationResult:
         }
 
 def compute_metric_aggregate(sub_df: pd.DataFrame, condition_str: str) -> float:
-    """Computes the appropriate metric aggregate (rate per min or mean)."""
+    """Computes the appropriate metric aggregate (rate per min or mean).
+
+    Rate computation requires a 'timestamp' column to calculate a per-minute rate.
+    When the timestamp column is absent the function returns the last observed value
+    (a raw counter snapshot), NOT a per-minute rate.  Callers that rely on rate
+    semantics must ensure the DataFrame includes a 'timestamp' column — the
+    export_metrics_to_df() method always provides one.
+    """
     if sub_df.empty:
         return 0.0
     val_s = sub_df["value"]
     if "rate_per_min" in condition_str or "rate" in condition_str:
-        if len(sub_df) > 1 and "timestamp" in sub_df.columns:
+        if "timestamp" in sub_df.columns and len(sub_df) > 1:
             t_min = float(sub_df["timestamp"].min())
             t_max = float(sub_df["timestamp"].max())
             duration_s = max(t_max - t_min, 1.0)
             delta_val = max(float(val_s.max() - val_s.min()), 0.0)
             return float((delta_val / duration_s) * 60.0)
         else:
-            delta_val = float(val_s.iloc[-1] - val_s.iloc[0]) if len(val_s) > 1 else float(val_s.iloc[-1])
-            return delta_val
+            # No timestamp available: return the last observed counter value.
+            # This is NOT a rate; the condition threshold must be set accordingly
+            # when using synthetic test data without timestamps.
+            return float(val_s.iloc[-1])
     return float(val_s.mean())
 
 def evaluate_condition_val(agg_val: float, condition_str: str) -> bool:

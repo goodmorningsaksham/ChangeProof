@@ -148,5 +148,11 @@ class ExperimentRunner:
             if toxic_applied:
                 try:
                     proxy_client.remove_toxic(fault_cfg["proxy"], f"toxic_{run_id}")
-                except Exception:
-                    pass
+                except Exception as teardown_err:
+                    # Log teardown failure into manifest so it is visible; do not
+                    # raise because experiment evidence is already collected.
+                    manifest.setdefault("warnings", []).append(
+                        f"Toxic teardown failed: {teardown_err}"
+                    )
+                    with open(manifest_path, "w", encoding="utf-8") as f:
+                        json.dump(manifest, f, indent=2)
