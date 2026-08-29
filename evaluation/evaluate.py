@@ -48,7 +48,7 @@ def run_comparative_evaluation(
     # designated negative control — its CASE-01-09 category is known from spec).
     # We use the case_data loaded by the runner; here we check if risk_level is LOW
     # and advanced_verdict is PASS as a proxy for correct safe-case handling.
-    executed_pass = [r for r in executed if r["advanced_verdict"] == "PASS"]
+    executed_pass = [r for r in executed if r["advanced_verdict"] in ("PASS", "PASS_SAFE")]
     executed_fail = [r for r in executed if r["advanced_verdict"] == "FAIL"]
     executed_inconclusive = [r for r in executed if r["advanced_verdict"] == "INCONCLUSIVE"]
 

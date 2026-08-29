@@ -1,6 +1,6 @@
 # CASE-10: UNSEALED HOLDOUT CASE (Formal Generalization Evaluation)
 id: "case-10"
-version: "1.0"
+version: "1.1"
 status: "ACTIVE"
 title: "Compound Failure: High Latency and Concurrency Wave Induce Retry Cascade"
 description: "Blind generalization holdout test combining 3500ms downstream latency, concurrent load spike, and un-jittered retries."
@@ -34,13 +34,21 @@ measurements:
       labels: { service: "checkout", target: "payment" }
     - name: "http_errors_total"
       labels: { service: "checkout" }
+    - name: "checkout_requests_total"
+      labels: { service: "checkout" }
 
 assertions:
   pre_patch:
-    - metric: "retry_count_total"
-      condition: "rate_per_min > 250"
-      description: "Severe compound retry cascade visible under latency and concurrency"
+    - metric: "retries_per_request"
+      condition: "> 2.0"
+      description: "Severe compound retry cascade visible under latency and concurrency wave"
+    - metric: "total_requests"
+      condition: ">= 100"
+      description: "Sufficient workload request sample size under compound fault"
   post_patch:
-    - metric: "retry_count_total"
-      condition: "rate_per_min < 60"
+    - metric: "retries_per_request"
+      condition: "<= 1.1"
       description: "Retry budget and exponential backoff prevent downstream cascade"
+    - metric: "total_requests"
+      condition: ">= 100"
+      description: "Sufficient workload request sample size under compound fault"

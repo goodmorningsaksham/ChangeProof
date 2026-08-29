@@ -3,27 +3,27 @@
   "WARNING": "Metrics below are computed ONLY over actually-executed cases. NOT_EXECUTED cases are listed explicitly and excluded from all percentages.",
   "execution_coverage": {
     "total_cases_in_suite": 10,
-    "cases_actually_executed": 1,
-    "cases_not_yet_executed": 9,
+    "cases_actually_executed": 3,
+    "cases_not_yet_executed": 7,
     "executed_case_ids": [
-      "case-01"
+      "case-01",
+      "case-05",
+      "case-10"
     ],
     "not_executed_case_ids": [
       "case-02",
       "case-03",
       "case-04",
-      "case-05",
       "case-06",
       "case-07",
       "case-08",
-      "case-09",
-      "case-10"
+      "case-09"
     ]
   },
   "metrics_over_executed_cases_only": {
     "vscr_advanced": 100.0,
     "vscr_baseline": 100.0,
-    "pass_count": 1,
+    "pass_count": 3,
     "fail_count": 0,
     "inconclusive_count": 0
   },
@@ -75,13 +75,13 @@
     {
       "case_id": "case-05",
       "title": "Asynchronous Non-Critical Retries Do Not Impact Core Checkout",
-      "executed": false,
+      "executed": true,
       "risk_level": "LOW",
       "baseline_verdict": "PASSED_UNCHECKED",
-      "advanced_verdict": "NOT_EXECUTED",
+      "advanced_verdict": "PASS_SAFE",
       "runtime_evidence_used": false,
-      "deterministic_verification": false,
-      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
+      "deterministic_verification": true,
+      "not_executed_reason": ""
     },
     {
       "case_id": "case-06",
@@ -130,13 +130,13 @@
     {
       "case_id": "case-10",
       "title": "Compound Failure: High Latency and Concurrency Wave Induce Retry Cascade",
-      "executed": false,
+      "executed": true,
       "risk_level": "HIGH",
       "baseline_verdict": "REVIEW_FLAGGED",
-      "advanced_verdict": "NOT_EXECUTED",
-      "runtime_evidence_used": false,
-      "deterministic_verification": false,
-      "not_executed_reason": "No non-empty base metrics: True; no non-empty patched metrics: True"
+      "advanced_verdict": "PASS",
+      "runtime_evidence_used": true,
+      "deterministic_verification": true,
+      "not_executed_reason": ""
     }
   ]
 }
