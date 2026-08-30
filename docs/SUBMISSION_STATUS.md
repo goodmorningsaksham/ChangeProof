@@ -109,16 +109,16 @@ INCONCLUSIVE verdict â€” verified at the unit level (`tests/unit/test_verif
 
 ```bash
 # Replay any executed capsule independently (zero Docker required for evidence mode)
-python changeproof/replay.py capsules/case-01.zip
-python changeproof/replay.py capsules/case-10.zip
-python changeproof/replay.py capsules/case-alt-01.zip
-python changeproof/replay.py capsules/case-calib-01.zip
-python changeproof/replay.py capsules/case-calib-02.zip
-python changeproof/replay.py capsules/case-var-01.zip
-python changeproof/replay.py capsules/case-var-02.zip
-python changeproof/replay.py capsules/case-var-03.zip
-python changeproof/replay.py capsules/case-var-04.zip
-python changeproof/replay.py capsules/case-var-05.zip
+python -m changeproof.replay capsules/case-01.zip
+python -m changeproof.replay capsules/case-10.zip
+python -m changeproof.replay capsules/case-alt-01.zip
+python -m changeproof.replay capsules/case-calib-01.zip
+python -m changeproof.replay capsules/case-calib-02.zip
+python -m changeproof.replay capsules/case-var-01.zip
+python -m changeproof.replay capsules/case-var-02.zip
+python -m changeproof.replay capsules/case-var-03.zip
+python -m changeproof.replay capsules/case-var-04.zip
+python -m changeproof.replay capsules/case-var-05.zip
 
 # Run the complete test suite, linter, and typechecker
 PYTHONPATH=. python -m pytest tests/ -v
@@ -180,6 +180,7 @@ To verify that verification results are not single-run flukes or stochastic anom
   When downstream latency ($1500\text{ms}$) strictly exceeds client timeout ($500\text{ms}$), 100% of requests exhaust all allowed retry attempts. With `RETRIES_MAX = 8`, tenacity executes exactly 7 retries per request ($1050 / 150 = 7.000$). With `RETRIES_MAX = 2`, tenacity executes exactly 1 retry per request ($150 / 150 = 1.000$).
 - **Continuous Metric Jitter vs. Discrete Verdict Stability**:
   While timing metrics (`duration_s`, throughput, rate) exhibit small continuous operating system network scheduling variations ($\approx \pm 0.05\text{s}$), the core metric of reliability verification (`retries_per_request`) is mathematically deterministic and immune to stochastic CI flakes.
+
 
 
 

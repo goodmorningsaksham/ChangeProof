@@ -1,0 +1,9 @@
+﻿--- a/app/checkout/main.py
++++ b/app/checkout/main.py
+@@ -10,3 +10,3 @@
+-RETRIES_MAX = int(os.getenv("RETRIES_MAX", "2"))
+-RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "1.0"))
+-RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.5"))
++RETRIES_MAX = int(os.getenv("RETRIES_MAX", "8"))
++RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "0.5"))
++RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.0"))
