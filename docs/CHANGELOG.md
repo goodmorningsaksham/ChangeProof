@@ -1,4 +1,46 @@
-﻿# ChangeProof Engineering & Improvement Changelog
+﻿
+---
+
+### [2026-08-30] LLM-Grounded Hypothesis Text & Patch Value Reasoning
+- **Commit**: HEAD (LLM-grounded hypothesis + patch generation)
+- **Stage**: Agentic Reasoning Quality — Templating Gap Fix
+- **What Was Tried / Why**:
+  Certificates from case-01, inventory-cloud-app, and express-order-app showed word-for-word identical
+  hypothesis descriptions and identical patch values (RETRIES_MAX=2/TIMEOUT=1.0/BACKOFF=0.5) regardless
+  of topology, language, or failure severity. This was templated output, not genuine reasoning.
+- **Changes Made**:
+  1. **TASK 1 — Hypothesis text**: Added diff_text and code_context keyword-only params to
+     generate_candidate_hypotheses(). When supplied, makes a real LLM call (OpenAI->Anthropic->fallback)
+     asking the model to articulate the failure mechanism grounded in the actual diff -- referencing the
+     specific variable names, service names, and configured values it can read. Structural fields (id,
+     signal, label, rank, confidence) remain deterministic. Call sites in cli_synth_verify.py and
+     gent.py updated to pass diff_text and resolved code_context. API unavailable -> falls back
+     to static template text, logged transparently.
+  2. **TASK 2 — Patch generation**: Replaced Step 7's 9-line static string-replace block
+     (always RETRIES_MAX=2/TIMEOUT=1.0/BACKOFF=0.5) with generate_llm_patch() that sends
+     observed failure telemetry (retries/req, rate/min, total_requests), the diff, and the source file
+     to the LLM and asks it to propose bounded values explaining its reasoning. Values are clamped to
+     safe bounds [RETRIES_MAX 1-5, TIMEOUT_S 0.3-5.0, BACKOFF 0.1-2.0]. LLM is never trusted on its
+     own -- erifier.verify() (deterministic) remains the sole arbiter. Fallback to conservative
+     defaults on API failure, logged explicitly as [PATCH SOURCE: FALLBACK].
+  3. **New module**: changeproof/llm_client.py -- shared OpenAI->Anthropic->None call helper,
+     following the pattern already established in experiment_synthesizer.resolve_entrypoint_route_via_agent().
+  4. **Tests**: Added 7 new mocked unit tests proving (a) LLM path produces topology-specific text,
+     (b) graceful fallback on bad/None LLM response, (c) no LLM call when no context supplied,
+     (d) 3-topology diversity check. All 54 unit tests pass.
+  5. **Proof script**: scripts/verify_llm_diversity.py demonstrates side-by-side diversity.
+- **Evidence / Result**:
+  - 54/54 unit tests pass.
+  - With mocked LLM responses, 3 diffs (checkout/payment, inventory/warehouse, express JS) produce
+    distinct, topology-grounded descriptions referencing actual file names, variable values, and
+    service names.
+  - Without API key: transparent fallback to static template (no silent failure).
+  - test_three_topologies_produce_different_descriptions PASS confirms diversity guarantee.
+- **Decision / Learning**:
+  LLM reasoning is used ONLY for explanatory text -- type classification stays deterministic (RiskAssessor
+  signals). LLM patch proposals are bounded and always verified by deterministic verifier. The system never
+  silently falls back to forced-pass values; if the LLM patch fails verification, the certificate reports
+  FAIL honestly.# ChangeProof Engineering & Improvement Changelog
 
 > Chronological record of architectural decisions, empirical discoveries, bug audits, assertion calibrations, and system hardening milestones per ChangeProof Spec § 16.
 
