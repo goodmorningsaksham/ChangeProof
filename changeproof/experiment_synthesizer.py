@@ -95,26 +95,44 @@ class ExperimentSynthesizer:
 
     def resolve_changed_file(self, pr_diff: str, changed_service: str) -> str:
         """Resolves the exact file path modified in the changed service."""
+        s_clean = _clean_service_name(changed_service)
+        extracted_paths = []
+        matching_paths = []
         for line in pr_diff.splitlines():
             if line.startswith("--- a/") or line.startswith("+++ b/"):
                 path = line.split("/", 1)[-1].strip()
-                if os.path.exists(path):
-                    return path
                 clean_path = re.sub(r"^[ab]/", "", path)
-                if os.path.exists(clean_path):
-                    return clean_path
+                if clean_path.startswith((".github/", "changeproof/", "tests/", "docs/", ".git/")):
+                    continue
+                if f"/{s_clean}/" in f"/{clean_path}" or s_clean in clean_path or changed_service in clean_path:
+                    if os.path.exists(path):
+                        return path
+                    if os.path.exists(clean_path):
+                        return clean_path
+                    matching_paths.append(clean_path)
+                else:
+                    extracted_paths.append(clean_path)
 
-        s_clean = _clean_service_name(changed_service)
+        if matching_paths:
+            return matching_paths[0]
+        if extracted_paths:
+            return extracted_paths[0]
+
         candidates = [
+            f"app/{s_clean}/server.js",
             f"app/{s_clean}/main.py",
+            f"app/{s_clean}/app.py",
+            f"app/{changed_service}/server.js",
             f"app/{changed_service}/main.py",
+            f"app/{changed_service}/app.py",
+            f"{s_clean}/server.js",
             f"{s_clean}/main.py",
             f"src/{s_clean}/main.py",
         ]
         for c in candidates:
             if os.path.exists(c):
                 return c
-        return f"app/{s_clean}/main.py"
+        return f"app/{s_clean}/server.js"
     def resolve_downstream_dependency(
         self,
         service_name: str,
@@ -332,22 +350,40 @@ class ExperimentSynthesizer:
         ep_underscore = entrypoint_service.replace("-", "_")
         ep_hyphen = entrypoint_service.replace("_", "-")
         source_paths = [
+            f"app/{entrypoint_service}/server.js",
+            f"app/{entrypoint_service}/index.js",
+            f"app/{entrypoint_service}/app.js",
             f"app/{entrypoint_service}/main.py",
             f"app/{entrypoint_service}/app.py",
+            f"app/{ep_underscore}/server.js",
+            f"app/{ep_underscore}/index.js",
+            f"app/{ep_underscore}/app.js",
             f"app/{ep_underscore}/main.py",
             f"app/{ep_underscore}/app.py",
+            f"app/{ep_hyphen}/server.js",
+            f"app/{ep_hyphen}/index.js",
+            f"app/{ep_hyphen}/app.js",
             f"app/{ep_hyphen}/main.py",
             f"app/{ep_hyphen}/app.py",
+            f"app/{ep_clean}/server.js",
+            f"app/{ep_clean}/index.js",
+            f"app/{ep_clean}/app.js",
             f"app/{ep_clean}/main.py",
             f"app/{ep_clean}/app.py",
+            f"{entrypoint_service}/server.js",
+            f"{entrypoint_service}/index.js",
             f"{entrypoint_service}/main.py",
             f"{entrypoint_service}/app.py",
+            f"{ep_underscore}/server.js",
             f"{ep_underscore}/main.py",
             f"{ep_underscore}/app.py",
+            f"{ep_clean}/server.js",
             f"{ep_clean}/main.py",
             f"{ep_clean}/app.py",
+            f"src/{entrypoint_service}/server.js",
             f"src/{entrypoint_service}/main.py",
             f"src/{entrypoint_service}/app.py",
+            f"src/{ep_clean}/server.js",
             f"src/{ep_clean}/main.py",
             f"src/{ep_clean}/app.py",
         ]
