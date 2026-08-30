@@ -1,4 +1,4 @@
-# ChangeProof — Submission Status
+﻿# ChangeProof â€” Submission Status
 
 **Repository**: https://github.com/goodmorningsaksham/ChangeProof  
 **Head commit**: `HEAD` (Human Governance, Policy Store & Full Agent Trajectories)  
@@ -16,8 +16,8 @@ against the repo, the 11 reproduction capsules, and the GitHub Actions run log.
 
 | System | Verified Safe Change Rate (VSCR) | Risk Detection Accuracy | Dynamic Remediation Verified |
 |---|---|---|---|
-| **ChangeProof Advanced** | **100.0%** (11 / 11 executed cases) | **100.0%** (11 / 11 correct) | ✅ **100.0%** Proven via Capsule Replay |
-| **Conventional Baseline** | **N/A — No runtime proof capability by design** | **100.0%** (11 / 11 correct) | ❌ **0%** (No runtime proof) |
+| **ChangeProof Advanced** | **100.0%** (11 / 11 executed cases) | **100.0%** (11 / 11 correct) | âœ… **100.0%** Proven via Capsule Replay |
+| **Conventional Baseline** | **N/A â€” No runtime proof capability by design** | **100.0%** (11 / 11 correct) | âŒ **0%** (No runtime proof) |
 
 - **Baseline**: **N/A on VSCR** (no runtime proof capability by design), **100.0% on risk detection accuracy** (fairly computed: correctly flags 10/10 HIGH-risk changes and clears 1/1 safe change via AST analysis).
 - **ChangeProof Advanced**: **100.0% on VSCR**, backed by real runtime fault injection and deterministic verifier assertions for every executed case.
@@ -28,7 +28,7 @@ against the repo, the 11 reproduction capsules, and the GitHub Actions run log.
 
 ## Designated Challenging Case: Confounded Multi-Signal Evaluation
 
-> 📌 **Full Analysis Document**: [`docs/CHALLENGING_CASE.md`](file:///c:/Users/saksh/Downloads/proofchange/docs/CHALLENGING_CASE.md)  
+> ðŸ“Œ **Full Analysis Document**: [`docs/CHALLENGING_CASE.md`](file:///c:/Users/saksh/Downloads/proofchange/docs/CHALLENGING_CASE.md)  
 > `CASE-01` features three confounded signals simultaneously (`RETRIES_MAX: 3->8`, `BACKOFF: 0.5->0.0`, `TIMEOUT: 1.0->0.5`). ChangeProof avoids the false independent attribution fallacy, reporting honest joint attribution (`[CONSISTENT WITH OBSERVED STORM]`) with explicit disclaimer on the proof certificate.
 
 ---
@@ -82,26 +82,26 @@ The following 7 cases have complete YAML experiment specifications in `evaluatio
 
 | Case | Scenario | Spec file |
 |---|---|---|
-| CASE-02 | **NOT_EXECUTED** — Cascading timeout amplification (frontend->checkout->payment chain) | `evaluation/cases/case_02.yaml` |
-| CASE-03 | **NOT_EXECUTED** — Circuit-breaker bypass under partial failure | `evaluation/cases/case_03.yaml` |
-| CASE-04 | **NOT_EXECUTED** — Connection pool exhaustion under sustained load | `evaluation/cases/case_04.yaml` |
-| CASE-06 | **NOT_EXECUTED** — Memory leak via unbounded cache growth | `evaluation/cases/case_06.yaml` |
-| CASE-07 | **NOT_EXECUTED** — Thundering-herd retry on cache miss | `evaluation/cases/case_07.yaml` |
-| CASE-08 | **NOT_EXECUTED** — Deadline propagation failure across service boundary | `evaluation/cases/case_08.yaml` |
-| CASE-09 | **NOT_EXECUTED** — Rate-limiter bypass under backpressure | `evaluation/cases/case_09.yaml` |
+| CASE-02 | **NOT_EXECUTED** â€” Cascading timeout amplification (frontend->checkout->payment chain) | `evaluation/cases/case_02.yaml` |
+| CASE-03 | **NOT_EXECUTED** â€” Circuit-breaker bypass under partial failure | `evaluation/cases/case_03.yaml` |
+| CASE-04 | **NOT_EXECUTED** â€” Connection pool exhaustion under sustained load | `evaluation/cases/case_04.yaml` |
+| CASE-06 | **NOT_EXECUTED** â€” Memory leak via unbounded cache growth | `evaluation/cases/case_06.yaml` |
+| CASE-07 | **NOT_EXECUTED** â€” Thundering-herd retry on cache miss | `evaluation/cases/case_07.yaml` |
+| CASE-08 | **NOT_EXECUTED** â€” Deadline propagation failure across service boundary | `evaluation/cases/case_08.yaml` |
+| CASE-09 | **NOT_EXECUTED** â€” Rate-limiter bypass under backpressure | `evaluation/cases/case_09.yaml` |
 
 ---
 
 ## 4. Known, Disclosed Limitations
 
-### Two CASE-01 capsule configurations — why both are kept
+### Two CASE-01 capsule configurations â€” why both are kept
 The PR sets `RETRY_TIMEOUT_SECONDS=0.5`. The canonical CI run (`33227355365`) used this config and produced 7.0 retries/req at 150 requests. An earlier local manual run used `RETRY_TIMEOUT_SECONDS=1.0` and produced 4.531 retries/req at 390 requests. Both measurements are real. `capsules/case-01.zip` is canonical; `capsules/case-01-local-timeout1.0.zip` documents timeout sensitivity.
 
 ### `app/checkout/main.py` baseline restored
 The file is restored to the pre-PR baseline (`RETRIES_MAX=3`, `RETRY_TIMEOUT_SECONDS=1.0`, `RETRY_BACKOFF_FACTOR=0.5`). `ci_pipeline.py` explicitly injects both the PR state and remediated state during builds.
 
-### INCONCLUSIVE verdict — unit-verified vs. live boundary finding
-INCONCLUSIVE verdict — verified at the unit level (`tests/unit/test_verifier_safety.py`: missing evidence, insufficient pre-patch reproduction, and certificate-safety tests all pass), but not naturally reproduced in a live end-to-end run after two genuine attempts. Root cause investigated and understood: `retries_per_request` is a discrete integer metric (tenacity retry counts cannot be fractional), and the risk-gate threshold is tuned such that any diff passing the HIGH-risk gate produces a retry count of 3.0 or higher — cleanly above the >2.0 pre-patch assertion, with no achievable value in the ambiguous zone. This is a designed property of the gate/threshold pairing, not an untested gap.
+### INCONCLUSIVE verdict â€” unit-verified vs. live boundary finding
+INCONCLUSIVE verdict â€” verified at the unit level (`tests/unit/test_verifier_safety.py`: missing evidence, insufficient pre-patch reproduction, and certificate-safety tests all pass), but not naturally reproduced in a live end-to-end run after two genuine attempts. Root cause investigated and understood: `retries_per_request` is a discrete integer metric (tenacity retry counts cannot be fractional), and the risk-gate threshold is tuned such that any diff passing the HIGH-risk gate produces a retry count of 3.0 or higher â€” cleanly above the >2.0 pre-patch assertion, with no achievable value in the ambiguous zone. This is a designed property of the gate/threshold pairing, not an untested gap.
 
 ---
 
@@ -125,3 +125,31 @@ PYTHONPATH=. python -m pytest tests/ -v
 PYTHONPATH=. python -m ruff check changeproof/ tests/ evaluation/
 PYTHONPATH=. python -m mypy changeproof/ --ignore-missing-imports
 ```
+
+---
+
+## 4. Unified Core Pipeline Architecture & CI Consolidation
+
+### Single Shared Core
+ChangeProof operates on a **single, unified deterministic core** across both local evaluation harnesses and live continuous integration gates:
+- **`RiskAssessor`** (`changeproof/risk_assessor.py`): Performs deterministic AST/regex diff analysis, anchors patterns strictly to added lines (`^\+(?!\+)`), evaluates stored human governance policies, and calculates risk scores.
+- **`ExperimentSynthesizer`** (`changeproof/experiment_synthesizer.py`): Topologically analyzes Docker Compose dependency graphs, dynamically discovers entrypoint services and FastAPI POST route decorators (`@app.post("/...")`), resolves downstream fault proxies via Toxiproxy configurations, and deterministically calibrates fault latency against client timeouts ($\max(2T, 1500\text{ms})$).
+- **`HypothesisEvaluator`** (`changeproof/hypothesis_evaluator.py`): Proposes candidate failure mechanisms, labels multi-signal diffs with explicit joint-attribution caveats, and populates certificates with real telemetry evidence.
+- **`Verifier`** (`changeproof/verifier.py`): Evaluates pre-patch amplification ($> 2.0$) and post-patch remediation ($\le 1.1$) against minimum request sample size ($\ge 100$) using authoritative manifest metrics.
+
+### Cross-Repository Live Execution
+This unified engine is executed identically by both repositories:
+1. **`goodmorningsaksham/ChangeProof`**: Verified on 3-tier canonical topology (`frontend -> checkout -> payment`).
+2. **`goodmorningsaksham/inventory-cloud-app`**: Verified on independent 3-tier stranger topology (`gateway -> inventory -> warehouse`).
+
+### Disclosed Operational Differences
+The system maintains only two intentional, disclosed design differences:
+1. **Telemetry Collection Strategy**:
+   - **Evaluation Engine (`experiment_runner.py`)**: Uses Prometheus HTTP query API (`http://localhost:9090/api/v1/query_range`) to capture granular time-series across full benchmark suites.
+   - **CI Verification (`cli_synth_verify.py`)**: Uses direct service Prometheus scrape endpoints (`/metrics`) to eliminate ephemeral Prometheus container startup timing race conditions in CI runners.
+2. **Workload Defaults**:
+   - General CI synthesis defaults to $10\text{ RPS} \times 15\text{s} = \mathbf{150\text{ requests}}$ at $10\text{ VUs}$, naturally exceeding the $\ge 100$ assertion sample size without artificial clamps.
+
+### Retirement of Legacy Entrypoints
+- `changeproof/ci_pipeline.py` is **fully retired** as a 7-line compatibility forwarding shim to `cli_synth_verify.main()`.
+- All active workflows in `.github/workflows/` invoke `python -m changeproof.cli_synth_verify` directly.
