@@ -1,0 +1,62 @@
+id: case-framework-gen-01
+version: '1.1'
+title: 'Topology-Synthesized: Downstream Latency Induces Retry Amplification (flask
+  -> payment)'
+description: 'Automated synthesis: flask-service calls payment-service over payment-proxy.
+  Injected latency (1500ms) calibrated against client timeout to reproduce retry storm.'
+target:
+  compose_file: docker-compose.flask.yml
+  git_commit: main
+  changed_service: flask-service
+  changed_file: app/flask_service/app.py
+fault:
+  tool: toxiproxy
+  proxy: payment-proxy
+  admin_url: http://localhost:8474
+  toxic:
+    type: latency
+    attributes:
+      latency: 1500
+      jitter: 75
+workload:
+  target_service: flask-service
+  entrypoint_route: /api/v1/process-order
+  entrypoint_payload:
+    item_id: item_123
+    quantity: 1
+  tool: k6
+  script: workloads/checkout_load.js
+  duration: 15s
+  vus: 10
+  rps_target: 10
+  num_requests: 150
+measurements:
+  prometheus_url: http://localhost:9090
+  scrape_interval_s: 1
+  metrics:
+  - name: retry_count_total
+    labels:
+      service: flask
+      target: payment
+  - name: http_errors_total
+    labels:
+      service: flask
+  - name: flask_requests_total
+    labels:
+      service: flask
+assertions:
+  pre_patch:
+  - metric: retries_per_request
+    condition: '> 2.0'
+    description: Retry amplification storm visible as >2.0 retries per failed request
+      on flask
+  - metric: total_requests
+    condition: '>= 100'
+    description: Sufficient workload request sample size under failure
+  post_patch:
+  - metric: retries_per_request
+    condition: <= 1.1
+    description: Retry count bounded to <=1.1 retries per failed request after remediation
+  - metric: total_requests
+    condition: '>= 100'
+    description: Sufficient workload request sample size under failure

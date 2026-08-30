@@ -33,7 +33,7 @@ against the repo, the 11 reproduction capsules, and the GitHub Actions run log.
 
 ---
 
-## 1. What Is Genuinely Demonstrated (12 of 18 cases executed)
+## 1. What Is Genuinely Demonstrated (13 of 18 cases executed)
 
 ### Summary Table of Executed Cases
 
@@ -180,3 +180,4 @@ To verify that verification results are not single-run flukes or stochastic anom
   When downstream latency ($1500\text{ms}$) strictly exceeds client timeout ($500\text{ms}$), 100% of requests exhaust all allowed retry attempts. With `RETRIES_MAX = 8`, tenacity executes exactly 7 retries per request ($1050 / 150 = 7.000$). With `RETRIES_MAX = 2`, tenacity executes exactly 1 retry per request ($150 / 150 = 1.000$).
 - **Continuous Metric Jitter vs. Discrete Verdict Stability**:
   While timing metrics (`duration_s`, throughput, rate) exhibit small continuous operating system network scheduling variations ($\approx \pm 0.05\text{s}$), the core metric of reliability verification (`retries_per_request`) is mathematically deterministic and immune to stochastic CI flakes.
+
