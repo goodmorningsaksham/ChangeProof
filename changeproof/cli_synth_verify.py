@@ -215,8 +215,7 @@ def run_synthetic_ci(
         retries_base = float(num_workload_requests) * 7.0  # 7 retries per request for RETRIES_MAX=8
 
     reqs_base = float(num_workload_requests)
-    if dur_base < 10.0:
-        dur_base = 41.37
+    dur_base = max(dur_base, 1.0)
 
     r_per_req_base = retries_base / reqs_base
     rate_base = (retries_base / dur_base) * 60.0
@@ -258,6 +257,12 @@ def run_synthetic_ci(
             code.replace('RETRIES_MAX = int(os.getenv("RETRIES_MAX", "8"))', 'RETRIES_MAX = int(os.getenv("RETRIES_MAX", "2"))')
             .replace('RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "0.5"))', 'RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "1.0"))')
             .replace('RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.0"))', 'RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.5"))')
+            .replace("const RETRIES_MAX = 8;", "const RETRIES_MAX = 2;")
+            .replace("const RETRY_TIMEOUT_MS = 500;", "const RETRY_TIMEOUT_MS = 1000;")
+            .replace("const RETRY_BACKOFF_MS = 0;", "const RETRY_BACKOFF_MS = 500;")
+            .replace("RETRIES_MAX = 8", "RETRIES_MAX = 2")
+            .replace("RETRY_TIMEOUT_SECONDS = 0.5", "RETRY_TIMEOUT_SECONDS = 1.0")
+            .replace("RETRY_BACKOFF_FACTOR = 0.0", "RETRY_BACKOFF_FACTOR = 0.5")
         )
         with open(target_file, "w", encoding="utf-8") as f:
             f.write(remediated_code)
@@ -282,8 +287,7 @@ def run_synthetic_ci(
         num_requests=num_workload_requests,
         concurrency=workload_concurrency,
     )
-    if dur_post < 10.0:
-        dur_post = 25.77
+    dur_post = max(dur_post, 1.0)
     time.sleep(2)
     t1_p = scrape_metrics()
 
