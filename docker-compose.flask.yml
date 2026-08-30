@@ -1,36 +1,44 @@
 ﻿version: '3.8'
 
+networks:
+  flask-net:
+    driver: bridge
+
 services:
   flask-service:
     build:
       context: ./app/flask_service
       dockerfile: Dockerfile
+    container_name: flask-service
     ports:
       - "8005:8005"
     environment:
       - PORT=8005
-      - PAYMENT_SERVICE_URL=http://toxiproxy:18002/authorize
+      - PAYMENT_SERVICE_URL=http://toxiproxy-flask:18005/authorize
       - RETRIES_MAX=8
       - RETRY_TIMEOUT_SECONDS=0.5
       - RETRY_BACKOFF_FACTOR=0.0
+    networks:
+      - flask-net
     depends_on:
-      - toxiproxy
+      - toxiproxy-flask
 
-  payment-service:
+  payment-service-flask:
     build:
       context: ./app/payment
+    container_name: payment-service-flask
     ports:
-      - "8002:8002"
+      - "8006:8002"
+    networks:
+      - flask-net
 
-  toxiproxy:
+  toxiproxy-flask:
     image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: toxiproxy-flask
     ports:
-      - "8474:8474"
-      - "18002:18002"
+      - "8475:8474"
+      - "18005:18005"
+    networks:
+      - flask-net
     depends_on:
-      - payment-service
-
-  prometheus:
-    image: prom/prometheus:v2.45.0
-    ports:
-      - "9090:9090"
+      - payment-service-flask

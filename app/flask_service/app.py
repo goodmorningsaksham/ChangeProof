@@ -1,4 +1,3 @@
-﻿"""Minimal Flask microservice target with standard Prometheus telemetry and retry loop."""
 import os
 import time
 import requests
@@ -8,22 +7,14 @@ from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_
 
 app = Flask(__name__)
 
-RETRIES_MAX = int(os.getenv("RETRIES_MAX", "8"))
-RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "0.5"))
-RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.0"))
+RETRIES_MAX = 2
+RETRY_TIMEOUT_SECONDS = 1.0
+RETRY_BACKOFF_FACTOR = 0.5
 
-DOWNSTREAM_URL = os.getenv("PAYMENT_SERVICE_URL", "http://payment-proxy:8002/authorize")
+DOWNSTREAM_URL = os.getenv("PAYMENT_SERVICE_URL", "http://toxiproxy-flask:18005/authorize")
 
-RETRY_COUNT = Counter(
-    "retry_count_total",
-    "Total retry attempts across service boundaries",
-    ["service", "target"]
-)
-REQUEST_COUNT = Counter(
-    "checkout_requests_total",
-    "Total incoming checkout requests",
-    ["service", "status"]
-)
+RETRY_COUNT = Counter("retry_count_total", "Total retry attempts across service boundaries", ["service", "target"])
+REQUEST_COUNT = Counter("checkout_requests_total", "Total incoming checkout requests", ["service", "status"])
 
 def _count_retry(retry_state):
     if retry_state.attempt_number >= 1:
@@ -58,11 +49,7 @@ def process_order():
     
     @get_retry_decorator()
     def _call_downstream():
-        resp = requests.post(
-            DOWNSTREAM_URL,
-            json={"order_id": f"ord_{int(time.time())}", "amount": 99.99},
-            timeout=RETRY_TIMEOUT_SECONDS
-        )
+        resp = requests.post(DOWNSTREAM_URL, json={"order_id": f"ord_{int(time.time())}", "amount": 99.99}, timeout=RETRY_TIMEOUT_SECONDS)
         resp.raise_for_status()
         return resp.json()
 
