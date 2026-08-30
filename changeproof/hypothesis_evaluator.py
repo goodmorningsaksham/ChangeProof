@@ -4,15 +4,16 @@ generate_candidate_hypotheses() accepts two optional keyword arguments:
   diff_text    -- the raw unified diff text for this PR
   code_context -- the content of the changed source file
 
-When either is provided (non-empty), the function makes a real LLM call to
-generate hypothesis title, description, and mechanism grounded in the actual
-diff/code — referencing specific variable names, service names, and configured
-values. When both are empty (the default), it falls back to the static template
-text, which keeps existing unit tests passing without modification.
+When either is provided (non-empty), the function makes a real LLM call (via llm_client)
+to generate hypothesis title, description, code_evidence, and mechanism grounded in
+the actual diff and code -- referencing specific variable names, service names, and configured
+values. When both are empty (the default) or when the LLM call fails after retry, it
+falls back to the static template text with an explicit "[Static Signal Description]" marker,
+ensuring ungrounded hypotheses are never presented as LLM-generated.
 
 The structural fields (id, signal, label, rank, confidence, grounding.proxy,
 grounding.calibrated_latency_ms) are always set deterministically from the
-RiskAssessor signals — only the explanatory text fields are LLM-generated.
+RiskAssessor signals -- only the explanatory text fields are LLM-generated.
 """
 from typing import Dict, Any, List
 
@@ -20,14 +21,14 @@ from changeproof.llm_client import call_llm, parse_json_response
 
 
 # ---------------------------------------------------------------------------
-# Static template defaults (used when no diff/code context is supplied)
+# Static template defaults (used when no diff/code context is supplied or on LLM fallback)
 # ---------------------------------------------------------------------------
 
 _STATIC_TEMPLATES: Dict[str, Dict[str, str]] = {
     "H-RETRY-CEILING": {
         "title": "Downstream latency induces retry amplification storm due to elevated retry ceiling",
         "description": (
-            "Elevated retry ceiling (RETRIES_MAX >= 4) allows each stalled request "
+            "[Static Signal Description] Elevated retry ceiling (RETRIES_MAX >= 4) allows each stalled request "
             "to execute multiple consecutive retries."
         ),
         "code_evidence": "Diff contains added lines setting RETRIES_MAX >= 4.",
@@ -39,7 +40,7 @@ _STATIC_TEMPLATES: Dict[str, Dict[str, str]] = {
     "H-NO-BACKOFF": {
         "title": "Immediate unspaced retries concentrate downstream traffic and spike storm rate",
         "description": (
-            "Removal of exponential backoff delay (RETRY_BACKOFF_FACTOR = 0.0) "
+            "[Static Signal Description] Removal of exponential backoff delay (RETRY_BACKOFF_FACTOR = 0.0) "
             "concentrates retries in rapid bursts."
         ),
         "code_evidence": "Diff sets backoff factor to 0.0 or uses wait_fixed(0).",
@@ -51,7 +52,7 @@ _STATIC_TEMPLATES: Dict[str, Dict[str, str]] = {
     "H-AGGRESSIVE-TIMEOUT": {
         "title": "Aggressive timeout reduction triggers premature timeouts before downstream can respond",
         "description": (
-            "Lowered client timeout (RETRY_TIMEOUT_SECONDS < 1.0s) causes client-side "
+            "[Static Signal Description] Lowered client timeout (RETRY_TIMEOUT_SECONDS < 1.0s) causes client-side "
             "timeout before downstream processing completes."
         ),
         "code_evidence": "Diff sets RETRY_TIMEOUT_SECONDS < 1.0s.",
@@ -63,7 +64,7 @@ _STATIC_TEMPLATES: Dict[str, Dict[str, str]] = {
     "H-HTTP-DEPENDENCY": {
         "title": "Unprotected downstream HTTP client call propagates downstream latency directly upstream",
         "description": (
-            "Direct HTTP client call modified on critical user path without "
+            "[Static Signal Description] Direct HTTP client call modified on critical user path without "
             "circuit-breaker protection."
         ),
         "code_evidence": "Diff modifies client.post or httpx.Client invocation without circuit breaker.",
@@ -95,9 +96,9 @@ def _build_hypothesis_prompt(
         "assessed and the following risk signal was detected:\n\n"
         f"SIGNAL: {signal_label}\n\n"
         "Your task is to explain WHY this specific diff creates a reliability risk. "
-        "Ground your explanation in the ACTUAL diff below — reference the specific "
+        "Ground your explanation in the ACTUAL diff below -- reference the specific "
         "variable names, service name, configured values, and code structure you can "
-        "see. Do NOT use generic language that would apply to any diff.\n\n"
+        "see. Do NOT use generic boilerplate language that would apply to any diff.\n\n"
         f"PR DIFF (or excerpt):\n```\n{diff_excerpt}\n```\n\n"
         f"TARGET FILE SOURCE (or excerpt):\n```\n{code_excerpt}\n```\n\n"
         f"FAULT INJECTION CONTEXT: proxy={proxy_name}, injected_latency={calibrated_latency_ms}ms\n\n"
@@ -107,7 +108,7 @@ def _build_hypothesis_prompt(
         '  "title": "A concise one-sentence title naming the exact failure mode, '
         'referencing the actual variable/service name from the diff",\n'
         '  "description": "2-3 sentence description explaining HOW this specific '
-        'change (cite the actual old→new values from the diff) causes the failure '
+        'change (cite the actual old->new values from the diff) causes the failure '
         'under downstream latency. Name the actual service and variable.",\n'
         '  "code_evidence": "One sentence quoting the specific added line(s) from '
         'the diff that introduce the risk.",\n'
@@ -129,11 +130,11 @@ def _enrich_hypothesis_via_llm(
     proxy_name: str,
     calibrated_latency_ms: int,
     template: Dict[str, str],
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """Attempts an LLM call to generate diff-grounded text fields.
 
-    Returns a dict with keys: title, description, code_evidence, mechanism.
-    Falls back to static template on any LLM failure.
+    Returns a dict with keys: title, description, code_evidence, mechanism, source ("llm" | "static").
+    Falls back to static template on any LLM failure or unparseable response.
     """
     prompt = _build_hypothesis_prompt(
         signal_id=hypothesis_id,
@@ -144,22 +145,32 @@ def _enrich_hypothesis_via_llm(
         calibrated_latency_ms=calibrated_latency_ms,
     )
 
-    response = call_llm(prompt, max_tokens=512)
+    response = call_llm(prompt, max_tokens=2048)
     if not response:
-        return template
+        res = dict(template)
+        res["source"] = "static"
+        return res
 
     data = parse_json_response(response)
 
-    # Validate required fields — fall back to template for any missing/invalid field
-    result = {}
+    # Validate required fields -- fall back to template for any missing/invalid field
+    result: Dict[str, Any] = {}
+    valid = True
     for field in ("title", "description", "code_evidence", "mechanism"):
         val = data.get(field, "")
         if isinstance(val, str) and len(val.strip()) > 10:
             result[field] = val.strip()
         else:
-            result[field] = template[field]
+            valid = False
+            break
 
-    return result
+    if valid:
+        result["source"] = "llm"
+        return result
+    else:
+        res = dict(template)
+        res["source"] = "static"
+        return res
 
 
 # ---------------------------------------------------------------------------
@@ -176,13 +187,13 @@ def generate_candidate_hypotheses(
 ) -> List[Dict[str, Any]]:
     """Generates one grounded hypothesis per detected risk signal.
 
-    When diff_text or code_context is non-empty, makes a real LLM call to
-    produce hypothesis text that references the actual diff, variable names,
-    service names, and configured values. When both are empty, uses static
-    template text (preserving full backwards-compatibility for unit tests).
+    When diff_text or code_context is non-empty, makes a real LLM call (via llm_client)
+    to produce hypothesis text that references the actual diff, variable names,
+    service names, and configured values. When both are empty, uses static template text
+    marked with "[Static Signal Description]".
 
     The structural fields (id, signal, label, rank, confidence, grounding keys)
-    are always set deterministically — only title, description, and grounding
+    are always set deterministically -- only title, description, and grounding
     text sub-fields are LLM-generated.
 
     Args:
@@ -208,13 +219,16 @@ def generate_candidate_hypotheses(
                 diff_text, code_context, proxy_name, calibrated_latency_ms, tmpl,
             )
         else:
-            enriched = tmpl
+            enriched = dict(tmpl)
+            enriched["source"] = "static"
+
         hypotheses.append({
             "id": "H-RETRY-CEILING",
             "signal": "Aggressive retry count increase (max_retries >= 4)",
             "label": "retry_count_amplification",
             "title": enriched["title"],
             "description": enriched["description"],
+            "source": enriched.get("source", "static"),
             "grounding": {
                 "code_evidence": enriched["code_evidence"],
                 "mechanism": enriched["mechanism"],
@@ -235,13 +249,16 @@ def generate_candidate_hypotheses(
                 diff_text, code_context, proxy_name, calibrated_latency_ms, tmpl,
             )
         else:
-            enriched = tmpl
+            enriched = dict(tmpl)
+            enriched["source"] = "static"
+
         hypotheses.append({
             "id": "H-NO-BACKOFF",
             "signal": "Removal of backoff / immediate retry execution",
             "label": "zero_backoff_load_concentration",
             "title": enriched["title"],
             "description": enriched["description"],
+            "source": enriched.get("source", "static"),
             "grounding": {
                 "code_evidence": enriched["code_evidence"],
                 "mechanism": enriched["mechanism"],
@@ -262,13 +279,16 @@ def generate_candidate_hypotheses(
                 diff_text, code_context, proxy_name, calibrated_latency_ms, tmpl,
             )
         else:
-            enriched = tmpl
+            enriched = dict(tmpl)
+            enriched["source"] = "static"
+
         hypotheses.append({
             "id": "H-AGGRESSIVE-TIMEOUT",
             "signal": "Aggressive timeout reduction (timeout < 1.0s)",
             "label": "premature_timeout_trigger",
             "title": enriched["title"],
             "description": enriched["description"],
+            "source": enriched.get("source", "static"),
             "grounding": {
                 "code_evidence": enriched["code_evidence"],
                 "mechanism": enriched["mechanism"],
@@ -289,13 +309,16 @@ def generate_candidate_hypotheses(
                 diff_text, code_context, proxy_name, calibrated_latency_ms, tmpl,
             )
         else:
-            enriched = tmpl
+            enriched = dict(tmpl)
+            enriched["source"] = "static"
+
         hypotheses.append({
             "id": "H-HTTP-DEPENDENCY",
             "signal": "Downstream HTTP dependency modification",
             "label": "unprotected_http_dependency",
             "title": enriched["title"],
             "description": enriched["description"],
+            "source": enriched.get("source", "static"),
             "grounding": {
                 "code_evidence": enriched["code_evidence"],
                 "mechanism": enriched["mechanism"],
@@ -313,7 +336,8 @@ def generate_candidate_hypotheses(
             "signal": "General risk detected",
             "label": "retry_amplification",
             "title": "Downstream latency induces retry amplification storm",
-            "description": "Downstream latency induces retry storm under current configuration.",
+            "description": "[Static Signal Description] Downstream latency induces retry storm under current configuration.",
+            "source": "static",
             "grounding": {
                 "code_evidence": "Diff modifies retry/network parameters.",
                 "mechanism": "Network latency propagates through client retry loops.",

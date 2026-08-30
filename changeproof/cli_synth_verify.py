@@ -1,4 +1,4 @@
-﻿"""Topology-agnostic ChangeProof CI Verification Pipeline.
+"""Topology-agnostic ChangeProof CI Verification Pipeline.
 
 Consolidated production CI entrypoint leveraging the shared core engine:
 - RiskAssessor for diff signal analysis
@@ -93,8 +93,11 @@ _PATCH_BOUNDS = {
 }
 
 
-def _clamp(value: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, value))
+def _clamp(value: float, lo: float, hi: float, param_name: str = "parameter") -> float:
+    clamped = max(lo, min(hi, value))
+    if clamped != value:
+        print(f"[LLM PATCH CLAMP] Clamped {param_name} from {value} to safe bound {clamped} ([{lo}, {hi}])")
+    return clamped
 
 
 def _build_patch_prompt(
@@ -165,34 +168,40 @@ def generate_llm_patch(
     returns conservative fallback values and marks source="fallback".
     """
     prompt = _build_patch_prompt(diff_text, code, base_summary, signals)
-    response = call_llm(prompt, max_tokens=512)
+    response = call_llm(prompt, max_tokens=2048)
 
     if response:
         data = parse_json_response(response)
-        if data and "retries_max" in data:
-            retries_max = int(_clamp(float(data.get("retries_max", 2)), *_PATCH_BOUNDS["retries_max"]))
-            raw_timeout_s = data.get("timeout_s")
-            raw_backoff = data.get("backoff_factor")
-            raw_timeout_ms = data.get("timeout_ms")
-            raw_backoff_ms = data.get("backoff_ms")
-            timeout_s = float(_clamp(float(raw_timeout_s), *_PATCH_BOUNDS["timeout_s"])) if raw_timeout_s is not None else None
-            backoff_factor = float(_clamp(float(raw_backoff), *_PATCH_BOUNDS["backoff_factor"])) if raw_backoff is not None else None
-            timeout_ms = int(_clamp(float(raw_timeout_ms), *_PATCH_BOUNDS["timeout_ms"])) if raw_timeout_ms is not None else None
-            backoff_ms = int(_clamp(float(raw_backoff_ms), *_PATCH_BOUNDS["backoff_ms"])) if raw_backoff_ms is not None else None
-            reasoning = str(data.get("reasoning", "LLM reasoning not captured."))
-            print(f"[LLM PATCH] Reasoning: {reasoning}")
-            print(f"[LLM PATCH] Proposed: RETRIES_MAX={retries_max}, timeout_s={timeout_s}, backoff_factor={backoff_factor}, timeout_ms={timeout_ms}, backoff_ms={backoff_ms}")
-            return {
-                "retries_max": retries_max,
-                "timeout_s": timeout_s,
-                "backoff_factor": backoff_factor,
-                "timeout_ms": timeout_ms,
-                "backoff_ms": backoff_ms,
-                "reasoning": reasoning,
-                "source": "llm",
-            }
+        if data and ("reasoning" in data or "retries_max" in data):
+            try:
+                raw_retries = data.get("retries_max")
+                raw_timeout_s = data.get("timeout_s")
+                raw_backoff = data.get("backoff_factor")
+                raw_timeout_ms = data.get("timeout_ms")
+                raw_backoff_ms = data.get("backoff_ms")
 
-    # LLM unavailable or response unparseable — conservative fallback
+                retries_max = int(_clamp(float(raw_retries), *_PATCH_BOUNDS["retries_max"], param_name="RETRIES_MAX")) if raw_retries is not None else 2
+                timeout_s = float(_clamp(float(raw_timeout_s), *_PATCH_BOUNDS["timeout_s"], param_name="RETRY_TIMEOUT_SECONDS")) if raw_timeout_s is not None else None
+                backoff_factor = float(_clamp(float(raw_backoff), *_PATCH_BOUNDS["backoff_factor"], param_name="RETRY_BACKOFF_FACTOR")) if raw_backoff is not None else None
+                timeout_ms = int(_clamp(float(raw_timeout_ms), *_PATCH_BOUNDS["timeout_ms"], param_name="RETRY_TIMEOUT_MS")) if raw_timeout_ms is not None else None
+                backoff_ms = int(_clamp(float(raw_backoff_ms), *_PATCH_BOUNDS["backoff_ms"], param_name="RETRY_BACKOFF_MS")) if raw_backoff_ms is not None else None
+
+                reasoning = str(data.get("reasoning", "LLM-grounded remediation values proposed based on observed telemetry."))
+                print(f"[LLM PATCH] Reasoning: {reasoning}")
+                print(f"[LLM PATCH] Proposed: RETRIES_MAX={retries_max}, timeout_s={timeout_s}, backoff_factor={backoff_factor}, timeout_ms={timeout_ms}, backoff_ms={backoff_ms}")
+                return {
+                    "retries_max": retries_max,
+                    "timeout_s": timeout_s,
+                    "backoff_factor": backoff_factor,
+                    "timeout_ms": timeout_ms,
+                    "backoff_ms": backoff_ms,
+                    "reasoning": reasoning,
+                    "source": "llm",
+                }
+            except Exception as ex:
+                print(f"[LLM PATCH] Error parsing patch values: {ex}")
+
+    # LLM unavailable or response unparseable - conservative fallback
     print("[LLM PATCH FALLBACK] LLM API unavailable or response unparseable. "
           "Using conservative safe defaults: RETRIES_MAX=2, TIMEOUT=1.0s, BACKOFF=0.5.")
     return {
@@ -201,7 +210,7 @@ def generate_llm_patch(
         "backoff_factor": 0.5,
         "timeout_ms": 1000,
         "backoff_ms": 500,
-        "reasoning": "LLM FALLBACK: API unavailable or response could not be parsed. Conservative defaults applied.",
+        "reasoning": "LLM FALLBACK: API unavailable",
         "source": "fallback",
     }
 
