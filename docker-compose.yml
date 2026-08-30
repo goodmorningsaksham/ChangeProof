@@ -9,7 +9,6 @@ services:
     build:
       context: ./app/payment
       dockerfile: Dockerfile
-    container_name: payment-service
     ports:
       - "8002:8002"
     networks:
@@ -22,7 +21,6 @@ services:
 
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.9.0
-    container_name: toxiproxy
     ports:
       - "8474:8474"   # Admin REST API
       - "18002:18002" # Proxy listen port for payment service
@@ -39,7 +37,6 @@ services:
     build:
       context: ./app/checkout
       dockerfile: Dockerfile
-    container_name: checkout-service
     ports:
       - "8001:8001"
     environment:
@@ -59,7 +56,6 @@ services:
     build:
       context: ./app/frontend
       dockerfile: Dockerfile
-    container_name: frontend-service
     ports:
       - "8000:8000"
     environment:
@@ -79,7 +75,6 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.45.0
-    container_name: prometheus
     ports:
       - "9090:9090"
     volumes:
