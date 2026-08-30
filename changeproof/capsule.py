@@ -1,9 +1,9 @@
-"""Reproduction capsule packager and unarchiver."""
+﻿"""Reproduction capsule packager and unarchiver."""
 import os
 import json
 import zipfile
 import hashlib
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 class CapsulePackager:
     def __init__(self, capsules_dir: str = "capsules"):
@@ -43,18 +43,29 @@ class CapsulePackager:
             except Exception:
                 pass
 
+        # Compute evidence hashes for all metrics and data files in run_dir
+        evidence_hashes: Dict[str, str] = {}
+        if os.path.exists(run_dir):
+            for fname in os.listdir(run_dir):
+                if fname.endswith(".csv") or fname.endswith(".json") or fname.endswith(".diff") or fname.endswith(".yaml"):
+                    if fname != "manifest.json":
+                        fpath = os.path.join(run_dir, fname)
+                        evidence_hashes[fname] = self.sha256_file(fpath)
+
         manifest = {
             "version": "1.0",
             "experiment_id": experiment_id,
             "git_commit_base": git_commit_base,
             "spec_sha256": spec_sha256,
             "patch_sha256": patch_sha256,
+            "evidence_hashes": evidence_hashes,
             "packaged_at": os.path.getmtime(run_dir) if os.path.exists(run_dir) else 0,
         }
         # Preserve run metrics, ratios, durations, and rates in capsule manifest
         manifest.update(run_manifest)
         manifest["spec_sha256"] = spec_sha256
         manifest["patch_sha256"] = patch_sha256
+        manifest["evidence_hashes"] = evidence_hashes
 
         with zipfile.ZipFile(capsule_path, "w", zipfile.ZIP_DEFLATED) as z:
             # Write capsule manifest
