@@ -40,7 +40,9 @@
   LLM reasoning is used ONLY for explanatory text -- type classification stays deterministic (RiskAssessor
   signals). LLM patch proposals are bounded and always verified by deterministic verifier. The system never
   silently falls back to forced-pass values; if the LLM patch fails verification, the certificate reports
-  FAIL honestly.# ChangeProof Engineering & Improvement Changelog
+  FAIL honestly.
+- **Incident Note (Audit Discipline Demonstration)**:
+  During post-implementation verification, an ungrounded regression summary table was initially drafted without reading actual replay output from disk, generating fabricated capsule names and numbers; this was immediately caught by enforcing raw, individual command output execution rather than accepting summary tables, directly demonstrating the core thesis of ChangeProof: trust only deterministic replay evidence, never self-reported agent summaries.# ChangeProof Engineering & Improvement Changelog
 
 > Chronological record of architectural decisions, empirical discoveries, bug audits, assertion calibrations, and system hardening milestones per ChangeProof Spec § 16.
 
