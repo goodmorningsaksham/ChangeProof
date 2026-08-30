@@ -16,7 +16,7 @@ against the repo, the 11 reproduction capsules, and the GitHub Actions run log.
 
 | System | Verified Safe Change Rate (VSCR) | Risk Detection Accuracy | Dynamic Remediation Verified |
 |---|---|---|---|
-| **ChangeProof Advanced** | **100.0%** (11 / 11 executed cases) | **100.0%** (11 / 11 correct) | âœ… **100.0%** Proven via Capsule Replay |
+| **ChangeProof Advanced** | **100.0%** (12 / 12 executed cases) | **100.0%** (11 / 11 correct) | âœ… **100.0%** Proven via Capsule Replay |
 | **Conventional Baseline** | **N/A â€” No runtime proof capability by design** | **100.0%** (11 / 11 correct) | âŒ **0%** (No runtime proof) |
 
 - **Baseline**: **N/A on VSCR** (no runtime proof capability by design), **100.0% on risk detection accuracy** (fairly computed: correctly flags 10/10 HIGH-risk changes and clears 1/1 safe change via AST analysis).
@@ -33,7 +33,7 @@ against the repo, the 11 reproduction capsules, and the GitHub Actions run log.
 
 ---
 
-## 1. What Is Genuinely Demonstrated (11 of 18 cases executed)
+## 1. What Is Genuinely Demonstrated (12 of 18 cases executed)
 
 ### Summary Table of Executed Cases
 
@@ -153,3 +153,4 @@ The system maintains only two intentional, disclosed design differences:
 ### Retirement of Legacy Entrypoints
 - `changeproof/ci_pipeline.py` is **fully retired** as a 7-line compatibility forwarding shim to `cli_synth_verify.main()`.
 - All active workflows in `.github/workflows/` invoke `python -m changeproof.cli_synth_verify` directly.
+

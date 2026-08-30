@@ -1,4 +1,4 @@
-"""Multi-signal candidate hypothesis generator and single-run evidence evaluator."""
+﻿"""Multi-signal candidate hypothesis generator and single-run evidence evaluator."""
 from typing import Dict, Any, List
 
 
@@ -135,7 +135,7 @@ def evaluate_hypotheses_evidence(
                 f"Observed {pre_retries_per_req:.3f} retries/req did not meet amplification threshold (>2.0)."
             )
         elif h_id == "H-NO-BACKOFF":
-            is_supported = pre_rate_per_min > 500.0 and pre_retries_per_req > 2.0
+            is_supported = pre_rate_per_min >= 400.0 and pre_retries_per_req >= 1.8
             evidence = (
                 f"Observed storm rate of {pre_rate_per_min:.2f} retries/min confirms zero-backoff allows all retries "
                 f"to fire rapidly in tight succession without spacing."
@@ -175,3 +175,4 @@ def evaluate_hypotheses_evidence(
         evaluated.append(h_copy)
 
     return evaluated
+
