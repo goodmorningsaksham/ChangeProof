@@ -12,3 +12,5 @@ case-var-04,checkout->payment,Low Concurrency: 5 VUs Traffic Load RETRIES=6,5.00
 case-var-05,checkout->payment,Combined Parameter: RETRIES=5 TIMEOUT=0.4s BACKOFF=0.0,4.000,1.000,REVIEW_FLAGGED,PASS,capsules/case-var-05.zip
 case-ablation-backoff-01,checkout->payment,Single-Signal Ablation: BACKOFF 0.5->0.0 (RETRIES=3 TIMEOUT=1.0s),2.000,2.000,REVIEW_FLAGGED,INCONCLUSIVE,capsules/case-ablation-backoff-01.zip
 case-framework-gen-01,flask->payment,Framework Gen (Flask): /api/v1/process-order via Agent Route Reasoning,7.000,1.000,REVIEW_FLAGGED,PASS,capsules/case-framework-gen-01.zip
+case-framework-gen-02,express->payment,Cross-Repo Framework Gen (Express/Node): Live PR on express-order-app,7.000,1.000,REVIEW_FLAGGED,PASS,capsules/case-framework-gen-02.zip
+
