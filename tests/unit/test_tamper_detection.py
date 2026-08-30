@@ -2,7 +2,6 @@
 import json
 import zipfile
 import tempfile
-import pytest
 from changeproof.replay import replay_capsule
 
 

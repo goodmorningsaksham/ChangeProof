@@ -1,4 +1,4 @@
-"""Topology-agnostic ChangeProof CI Verification Pipeline.
+﻿"""Topology-agnostic ChangeProof CI Verification Pipeline.
 
 Consolidated production CI entrypoint leveraging the shared core engine:
 - RiskAssessor for diff signal analysis
@@ -139,10 +139,10 @@ def _build_patch_prompt(
         '  "reasoning": "2-3 sentences explaining WHY you chose these specific values '
         'based on the observed severity and the specific variables in the diff",\n'
         '  "retries_max": <integer>,\n'
-        '  "timeout_s": <float, seconds â€” use null if not applicable to this diff>,\n'
-        '  "backoff_factor": <float â€” use null if not applicable to this diff>,\n'
-        '  "timeout_ms": <integer, milliseconds â€” use null if not JS/not applicable>,\n'
-        '  "backoff_ms": <integer, milliseconds â€” use null if not JS/not applicable>\n'
+        '  "timeout_s": <float, seconds Ã¢â‚¬â€ use null if not applicable to this diff>,\n'
+        '  "backoff_factor": <float Ã¢â‚¬â€ use null if not applicable to this diff>,\n'
+        '  "timeout_ms": <integer, milliseconds Ã¢â‚¬â€ use null if not JS/not applicable>,\n'
+        '  "backoff_ms": <integer, milliseconds Ã¢â‚¬â€ use null if not JS/not applicable>\n'
         "}"
     )
 
