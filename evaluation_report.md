@@ -1,6 +1,6 @@
 ﻿# ChangeProof â€” Comprehensive Evaluation Report
 
-## Benchmark Summary (13 Executed Cases: 12 PASS, 1 INCONCLUSIVE)
+## Benchmark Summary (14 Executed Cases: 13 PASS, 1 INCONCLUSIVE)
 
 | Metric | ChangeProof Advanced | Conventional Baseline | Delta / Benefit |
 |---|---|---|---|
@@ -28,3 +28,4 @@
 | **`case-var-03`** | `checkout -> payment` | High Concurrency: 30 VUs Traffic Burst (`RETRIES=8`) | **7.000** | **1.000** | `REVIEW_FLAGGED` | **`PASS`** | `capsules/case-var-03.zip` |
 | **`case-var-04`** | `checkout -> payment` | Low Concurrency: 5 VUs Traffic Load (`RETRIES=6`) | **5.000** | **1.000** | `REVIEW_FLAGGED` | **`PASS`** | `capsules/case-var-04.zip` |
 | **`case-var-05`** | `checkout -> payment` | Combined Parameter: `RETRIES=5, TIMEOUT=0.4s, BACKOFF=0.0` | **4.000** | **1.000** | `REVIEW_FLAGGED` | **`PASS`** | `capsules/case-var-05.zip` |
+

@@ -1,0 +1,34 @@
+id: case-framework-gen-02
+target:
+  compose_file: docker-compose.yml
+  changed_service: order-service
+  changed_file: app/order/server.js
+  language_framework: node_express
+fault:
+  type: latency
+  proxy: express-payment-proxy
+  toxic:
+    name: latency_toxic
+    type: latency
+    stream: downstream
+    attributes:
+      latency: 2000
+      jitter: 100
+workload:
+  num_requests: 150
+  concurrency: 10
+  entrypoint_route: /api/v1/orders/create
+  entrypoint_payload:
+    item_id: item_123
+    quantity: 1
+assertions:
+  pre_patch:
+  - metric: retries_per_request
+    condition: '> 2.0'
+  - metric: total_requests
+    condition: '>= 100'
+  post_patch:
+  - metric: retries_per_request
+    condition: <= 1.1
+  - metric: total_requests
+    condition: '>= 100'
