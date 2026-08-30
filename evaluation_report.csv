@@ -1,4 +1,4 @@
-case_id,topology,scenario,pre_retries_per_req,post_retries_per_req,baseline_verdict,changeproof_verdict,artifact
+﻿case_id,topology,scenario,pre_retries_per_req,post_retries_per_req,baseline_verdict,changeproof_verdict,artifact
 case-01,checkout->payment,Storm: RETRIES=8 TIMEOUT=0.5s BACKOFF=0.0,7.000,1.000,REVIEW_FLAGGED,PASS,capsules/case-01.zip
 case-05,checkout,Negative Control: ANALYTICS_RETRY=2,N/A,N/A,PASSED_UNCHECKED,PASS_SAFE,Static AST Cleared
 case-10,checkout->payment,Compound: 3500ms Latency 45 RPS Load 15 VUs,5.000,1.000,REVIEW_FLAGGED,PASS,capsules/case-10.zip
@@ -10,3 +10,5 @@ case-var-02,checkout->payment,High Latency: 3500ms RETRIES=6 TIMEOUT=0.6s,5.000,
 case-var-03,checkout->payment,High Concurrency: 30 VUs Traffic Burst RETRIES=8,7.000,1.000,REVIEW_FLAGGED,PASS,capsules/case-var-03.zip
 case-var-04,checkout->payment,Low Concurrency: 5 VUs Traffic Load RETRIES=6,5.000,1.000,REVIEW_FLAGGED,PASS,capsules/case-var-04.zip
 case-var-05,checkout->payment,Combined Parameter: RETRIES=5 TIMEOUT=0.4s BACKOFF=0.0,4.000,1.000,REVIEW_FLAGGED,PASS,capsules/case-var-05.zip
+case-ablation-backoff-01,checkout->payment,Single-Signal Ablation: BACKOFF 0.5->0.0 (RETRIES=3 TIMEOUT=1.0s),2.000,2.000,REVIEW_FLAGGED,INCONCLUSIVE,capsules/case-ablation-backoff-01.zip
+case-framework-gen-01,flask->payment,Framework Gen (Flask): /api/v1/process-order via Agent Route Reasoning,7.000,1.000,REVIEW_FLAGGED,PASS,capsules/case-framework-gen-01.zip
