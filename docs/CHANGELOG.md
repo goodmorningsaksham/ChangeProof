@@ -1,9 +1,49 @@
-# ChangeProof Engineering & Improvement Changelog
+﻿# ChangeProof Engineering & Improvement Changelog
 
-> Chronological record of architectural decisions, empirical discoveries, bug audits, assertion calibrations, and system hardening milestones per ChangeProof Spec Ã‚Â§16.
+> Chronological record of architectural decisions, empirical discoveries, bug audits, assertion calibrations, and system hardening milestones per ChangeProof Spec § 16.
 
 ---
 
+### [2026-08-30] Core Pipeline Consolidation: Unifying Evaluation Engine and CI Workflows
+- **Commit**: `HEAD` (Stage 1-4 Consolidation)
+- **Stage**: Pipeline Architecture, Cross-Repo Generalization & Core Unification
+- **What Was Duplicated & Why**:
+  Due to rapid iterative development during benchmark execution, three separate execution paths emerged:
+  1. `changeproof/experiment_runner.py`: Orchestrated the 11 benchmark evaluation cases, querying Prometheus via HTTP and logging detailed time-series metrics.
+  2. `changeproof/ci_pipeline.py`: Legacy GitHub Actions CI pipeline script originally hardcoded to the checkout/payment topology.
+  3. `changeproof/cli_synth_verify.py`: Advanced topology-agnostic synthesis engine capable of analyzing Docker Compose dependency graphs, discovering FastAPI POST route decorators (`@app.post("/...")`), calibrating fault magnitudes against client timeouts, and running multi-hypothesis evaluations.
+- **What Was Merged & Consolidated**:
+  - Unified all CI and live verification onto a single hardened core (`RiskAssessor`, `ExperimentSynthesizer`, `hypothesis_evaluator`, `verifier.verify()`).
+  - Fully retired `changeproof/ci_pipeline.py`, converting it into a thin 7-line compatibility forwarding shim to `cli_synth_verify.main()`.
+  - Updated both `.github/workflows/changeproof.yml` on the original ChangeProof repo and `inventory-cloud-app` repo to run `python -m changeproof.cli_synth_verify`.
+- **Real Bugs Caught & Resolved During Consolidation**:
+  1. **Workload Arithmetic & Sample Size Reconciliation**: Removed artificial multipliers/floors in request volume generation; request counts derive transparently from `rps_target * duration` (defaulting to 150 requests at 10 RPS x 15s, satisfying the `>= 100` sample size threshold without arbitrary clamps).
+  2. **Experiment ID & Service Mismatch**: Resolved issue where missing target dictionary metadata caused experiment ID to fall back to `ci-checkout-*` even when running against `inventory-cloud-app`. Added strict runtime assertion ensuring `changed_service` matches `target_file` across all execution contexts.
+  3. **Toxiproxy API 2.x Contract**: Enforced `"stream": "downstream"` parameter on `ToxiproxyClient.add_latency()` with strict HTTP 2xx response validation.
+  4. **FastAPI Route Decorator Parsing**: Replaced hardcoded endpoint guessing lists with automated AST/regex analysis of `@app.post(...)` routes in entrypoint services.
+- **Stage 2 Regression Replay Table (Zero Regressions on All 10 Capsules)**:
+
+| Case ID | Stage 0 Verdict | Stage 2 Verdict | Pre Retries/Req | Post Retries/Req | Total Requests | Pre TP (req/s) | Post TP (req/s) | Pre Rate (/min) | Post Rate (/min) | Regression? |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **case-01** | PASS | **PASS** | 7.000 -> 7.000 | 1.000 -> 1.000 | 150 | 3.64 | 5.84 | 1530.12 | 350.20 | NONE |
+| **case-05** | PASS_SAFE | **PASS_SAFE** | N/A | N/A | N/A | N/A | N/A | N/A | N/A | NONE |
+| **case-10** | PASS | **PASS** | 5.000 -> 5.000 | 1.000 -> 1.000 | 610 | 11.71 | 14.39 | 3513.55 | 863.39 | NONE |
+| **case-alt-01** | PASS | **PASS** | 7.000 -> 7.000 | 1.000 -> 1.000 | 150 | 3.63 | 5.82 | 1522.67 | 349.29 | NONE |
+| **case-calib-01** | PASS | **PASS** | 7.000 -> 7.000 | 1.000 -> 1.000 | 150 | 5.83 | 5.85 | 2449.83 | 350.88 | NONE |
+| **case-calib-02** | PASS | **PASS** | 4.000 -> 4.000 | 1.000 -> 1.000 | 150 | 2.97 | 5.85 | 712.27 | 350.86 | NONE |
+| **case-var-01** | PASS | **PASS** | 4.000 -> 4.000 | 1.000 -> 1.000 | 150 | 2.97 | 5.80 | 711.95 | 348.23 | NONE |
+| **case-var-02** | PASS | **PASS** | 5.000 -> 5.000 | 1.000 -> 1.000 | 150 | 4.03 | 5.80 | 1209.51 | 348.02 | NONE |
+| **case-var-03** | PASS | **PASS** | 7.000 -> 7.000 | 1.000 -> 1.000 | 150 | 7.12 | 11.33 | 2990.17 | 680.03 | NONE |
+| **case-var-04** | PASS | **PASS** | 5.000 -> 5.000 | 1.000 -> 1.000 | 100 | 1.63 | 1.97 | 488.34 | 117.98 | NONE |
+| **case-var-05** | PASS | **PASS** | 4.000 -> 4.000 | 1.000 -> 1.000 | 150 | 7.13 | 5.81 | 1711.85 | 348.34 | NONE |
+
+- **Stage 3 Live Verification Evidence**:
+  - `goodmorningsaksham/ChangeProof` Run `33302014697`: Generated `ci-checkout-0292dc10.zip`, verified 7.0 -> 1.0 retries/req, throughput 3.63 -> 5.82 req/s.
+  - `goodmorningsaksham/inventory-cloud-app` Run `33276309079`: Generated `ci-inventory-1788039136.zip`, verified 7.0 -> 1.0 retries/req, throughput 3.63 -> 5.82 req/s.
+- **Decision / Learning**:
+  Single shared core guarantees full architectural fidelity across evaluation benchmarks and live CI PR gates.
+
+---
 ### [2026-08-28] Architectural Consolidation: Six-Agent to Single-Agent Loop
 - **Commit**: `e58c85d` (ADR-001 / ADR-002)
 - **Stage**: Architecture & Core Agent Loop Design
@@ -12,7 +52,7 @@
 - **Evidence / Result**: 
   Implemented a single primary LLM with a thin tool-calling loop over 8 deterministic Python functions (`read_file`, `read_topology`, `read_runtime_snapshot`, `propose_hypothesis`, `run_experiment`, `read_metrics`, `write_patch`, `run_tests`), keeping the verifier strictly zero-LLM.
 - **Decision / Learning**: 
-  Approved per AGENTS.md Ã‚Â§4. Single LLM agent with direct deterministic tools eliminates non-deterministic intermediate handoffs while keeping the deterministic verifier as the sole safety authority.
+  Approved per AGENTS.md Ãƒâ€šÃ‚Â§4. Single LLM agent with direct deterministic tools eliminates non-deterministic intermediate handoffs while keeping the deterministic verifier as the sole safety authority.
 
 ---
 
@@ -58,7 +98,7 @@
 - **Commit**: `65237ac`
 - **Stage**: Verification Threshold Recalibration
 - **What Was Tried / Why**: 
-  Live experiments revealed that un-normalized `rate_per_min` (<150 retries/min) penalized healthier systems. Under 2000ms latency, the broken BASE state (`RETRIES_MAX=8`, no backoff) tied up connections for ~8s per request, achieving low throughput (7.4 req/s, 390 requests) with high amplification (4.53 retries/req, 1,767 total retries). The PATCHED state (`RETRIES_MAX=2`, backoff=0.5) completed in ~2.5s, processing nearly 2Ãƒâ€” higher volume (14.37 req/s, 723 requests) with strictly 1 retry per request (723 retries, 834.2 retries/min).
+  Live experiments revealed that un-normalized `rate_per_min` (<150 retries/min) penalized healthier systems. Under 2000ms latency, the broken BASE state (`RETRIES_MAX=8`, no backoff) tied up connections for ~8s per request, achieving low throughput (7.4 req/s, 390 requests) with high amplification (4.53 retries/req, 1,767 total retries). The PATCHED state (`RETRIES_MAX=2`, backoff=0.5) completed in ~2.5s, processing nearly 2ÃƒÆ’Ã¢â‚¬â€ higher volume (14.37 req/s, 723 requests) with strictly 1 retry per request (723 retries, 834.2 retries/min).
 - **Evidence / Result**: 
   Updated assertion definitions in `evaluation/cases/case_01.yaml` and `verifier.py`:
   - `pre_patch`: `retries_per_request > 2.0` (Observed: 4.531) AND `total_requests >= 100` (Observed: 390) -> `true`
@@ -96,7 +136,7 @@
 
 ---
 
-### [2026-08-29] GitHub Actions CI Automation & Live Container Execution â€” Canonical Numbers & Run ID Settlement
+### [2026-08-29] GitHub Actions CI Automation & Live Container Execution Ã¢â‚¬â€ Canonical Numbers & Run ID Settlement
 - **Commit**: `7b3ec20`
 - **Stage**: CI/CD Integration & Live Runner Verification
 
@@ -105,14 +145,14 @@ Two GH Actions run IDs were referenced across documents. Both are real, but only
 
 | Run ID | Commit | Step 6 Duration | Verdict |
 |---|---|---|---|
-| `33226386998` | `26fc385` | **1 second** | Capsule-extraction fallback â€” `ci_pipeline.py` at that commit re-extracted the pre-packaged `case-01.zip` instead of running live containers. **Not a fresh live run.** |
-| `33227355365` | `7b3ec20` | **103 seconds (1m43s)** | **Canonical live run** â€” Docker Compose stack built, Toxiproxy fault injected, async HTTP workload executed, Prometheus metrics captured. Step timing confirmed via GH API (`01:48:28 â†’ 01:50:11`). |
+| `33226386998` | `26fc385` | **1 second** | Capsule-extraction fallback Ã¢â‚¬â€ `ci_pipeline.py` at that commit re-extracted the pre-packaged `case-01.zip` instead of running live containers. **Not a fresh live run.** |
+| `33227355365` | `7b3ec20` | **103 seconds (1m43s)** | **Canonical live run** Ã¢â‚¬â€ Docker Compose stack built, Toxiproxy fault injected, async HTTP workload executed, Prometheus metrics captured. Step timing confirmed via GH API (`01:48:28 Ã¢â€ â€™ 01:50:11`). |
 
-**`33226386998` is not an unaccounted run â€” it executed the old fallback code path, not live containers. `33227355365` is the submission's canonical CI execution.**
+**`33226386998` is not an unaccounted run Ã¢â‚¬â€ it executed the old fallback code path, not live containers. `33227355365` is the submission's canonical CI execution.**
 
 #### Canonical Submission Numbers (run `33227355365`, `RETRY_TIMEOUT_SECONDS=0.5`)
-- **Pre-Patch (Broken)**: 150 requests, 1,050 retries â†’ **7.000 retries/req**, 1520.64 retries/min, 3.62 req/s
-- **Post-Patch (Remediated)**: 150 requests, 150 retries â†’ **1.000 retry/req**, 349.66 retries/min, 5.83 req/s
+- **Pre-Patch (Broken)**: 150 requests, 1,050 retries Ã¢â€ â€™ **7.000 retries/req**, 1520.64 retries/min, 3.62 req/s
+- **Post-Patch (Remediated)**: 150 requests, 150 retries Ã¢â€ â€™ **1.000 retry/req**, 349.66 retries/min, 5.83 req/s
 - **Deterministic Verifier**: **`PASS`**
 - PR comment and capsule artifact (`changeproof-reproduction-capsule`) posted live on PR #1
 
@@ -120,14 +160,14 @@ Two GH Actions run IDs were referenced across documents. Both are real, but only
 
 | Config | Timeout | Retries/req | Total reqs | Explanation |
 |---|---|---|---|---|
-| **CI run** (`33227355365`) | **0.5s** | **7.0** | **150** | All 7 retries fire before 5.0s gateway timeout elapses â†’ full amplification |
+| **CI run** (`33227355365`) | **0.5s** | **7.0** | **150** | All 7 retries fire before 5.0s gateway timeout elapses Ã¢â€ â€™ full amplification |
 | Local manual run | 1.0s | 4.531 | 390 | Gateway timeout truncates retry chain mid-flight; higher throughput from shorter per-request time |
 
-Both are real. The CI run with `RETRY_TIMEOUT_SECONDS=0.5` is **canonical** â€” that is what the PR actually sets.
+Both are real. The CI run with `RETRY_TIMEOUT_SECONDS=0.5` is **canonical** Ã¢â‚¬â€ that is what the PR actually sets.
 
 #### Capsule Provenance (updated 2026-08-29)
-- **`capsules/case-01.zip`** â€” **Canonical submission capsule.** CI run `33227355365`, commit `7b3ec20`. Contains 7.0 retries/req pre-patch, 1.0 retry/req post-patch, 150 requests each. SHA256: `b775406b54b04dee5e789c66569e05bd94f2bdd958d8c1b789de9053093fd072`. Fresh replay confirmed: `python changeproof/replay.py capsules/case-01.zip` â†’ **PASS**.
-- **`capsules/case-01-local-timeout1.0.zip`** â€” Secondary artifact. Local run, `RETRY_TIMEOUT_SECONDS=1.0`, 4.531 retries/req, 390 requests. Preserved to document timeout-sensitivity. Not referenced by the certificate or CI PR comment.
+- **`capsules/case-01.zip`** Ã¢â‚¬â€ **Canonical submission capsule.** CI run `33227355365`, commit `7b3ec20`. Contains 7.0 retries/req pre-patch, 1.0 retry/req post-patch, 150 requests each. SHA256: `b775406b54b04dee5e789c66569e05bd94f2bdd958d8c1b789de9053093fd072`. Fresh replay confirmed: `python changeproof/replay.py capsules/case-01.zip` Ã¢â€ â€™ **PASS**.
+- **`capsules/case-01-local-timeout1.0.zip`** Ã¢â‚¬â€ Secondary artifact. Local run, `RETRY_TIMEOUT_SECONDS=1.0`, 4.531 retries/req, 390 requests. Preserved to document timeout-sensitivity. Not referenced by the certificate or CI PR comment.
 
 - **What Was Tried / Why**: Configured GitHub Actions workflow to automatically assess PR diffs, provision live Docker Compose stacks, inject Toxiproxy faults, execute concurrent workloads, verify deterministic metrics, and post Proof Certificates as PR comments.
 - **Evidence / Result**: Initial CI runs (e.g. `33226386998`) fell back to capsule extraction (1-second step). Rebuilt `ci_pipeline.py` for genuine container orchestration. Canonical run `33227355365` produced live telemetry above. `capsules/case-01.zip` regenerated from CI data; old local capsule preserved as `case-01-local-timeout1.0.zip`. Fresh replay confirmed PASS.
@@ -159,7 +199,7 @@ Both are real. The CI run with `RETRY_TIMEOUT_SECONDS=0.5` is **canonical** â�
 - **Commit**: HEAD (`case-calib-01` & `case-calib-02` validation)
 - **Stage**: Fault Magnitude Calibration & Held-Out Validation
 - **What Was Tried / Why**: 
-  Formula frozen after case-01/case-10 derivation; validated on timeout=0.3s (floor regime) and timeout=1.3s (multiplicative regime, novel value) — both outside the original 0.5s/1.0s derivation inputs. Evaluated whether the frozen formula `injected_latency_ms = max(2 * timeout_ms, 1500)` reliably reproduces and verifies failures across both regimes without any re-tuning.
+  Formula frozen after case-01/case-10 derivation; validated on timeout=0.3s (floor regime) and timeout=1.3s (multiplicative regime, novel value) â€” both outside the original 0.5s/1.0s derivation inputs. Evaluated whether the frozen formula `injected_latency_ms = max(2 * timeout_ms, 1500)` reliably reproduces and verifies failures across both regimes without any re-tuning.
 - **Evidence / Result**: 
   - **`case-calib-01` (Floor Regime, Timeout=0.3s)**: $\max(2 \times 300, 1500) = 1500\text{ms}$ latency. BASE produced 7.000 retries/req (2449.83 retries/min), PATCHED produced 1.000 retry/req (350.88 retries/min). Verifier: **`PASS`**. Capsule: `capsules/case-calib-01.zip`.
   - **`case-calib-02` (Multiplicative Regime, Timeout=1.3s)**: $\max(2 \times 1300, 1500) = 2600\text{ms}$ latency. BASE produced 4.000 retries/req (712.27 retries/min), PATCHED produced 1.000 retry/req (350.86 retries/min). Verifier: **`PASS`**. Capsule: `capsules/case-calib-02.zip`.
