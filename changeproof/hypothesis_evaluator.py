@@ -1,26 +1,223 @@
-﻿"""Multi-signal candidate hypothesis generator and single-run evidence evaluator."""
+﻿"""Multi-signal candidate hypothesis generator and single-run evidence evaluator.
+
+generate_candidate_hypotheses() accepts two optional keyword arguments:
+  diff_text    -- the raw unified diff text for this PR
+  code_context -- the content of the changed source file
+
+When either is provided (non-empty), the function makes a real LLM call to
+generate hypothesis title, description, and mechanism grounded in the actual
+diff/code — referencing specific variable names, service names, and configured
+values. When both are empty (the default), it falls back to the static template
+text, which keeps existing unit tests passing without modification.
+
+The structural fields (id, signal, label, rank, confidence, grounding.proxy,
+grounding.calibrated_latency_ms) are always set deterministically from the
+RiskAssessor signals — only the explanatory text fields are LLM-generated.
+"""
 from typing import Dict, Any, List
 
+from changeproof.llm_client import call_llm, parse_json_response
+
+
+# ---------------------------------------------------------------------------
+# Static template defaults (used when no diff/code context is supplied)
+# ---------------------------------------------------------------------------
+
+_STATIC_TEMPLATES: Dict[str, Dict[str, str]] = {
+    "H-RETRY-CEILING": {
+        "title": "Downstream latency induces retry amplification storm due to elevated retry ceiling",
+        "description": (
+            "Elevated retry ceiling (RETRIES_MAX >= 4) allows each stalled request "
+            "to execute multiple consecutive retries."
+        ),
+        "code_evidence": "Diff contains added lines setting RETRIES_MAX >= 4.",
+        "mechanism": (
+            "High retry ceiling causes each stalled request to multiply downstream "
+            "load up to RETRIES_MAX times."
+        ),
+    },
+    "H-NO-BACKOFF": {
+        "title": "Immediate unspaced retries concentrate downstream traffic and spike storm rate",
+        "description": (
+            "Removal of exponential backoff delay (RETRY_BACKOFF_FACTOR = 0.0) "
+            "concentrates retries in rapid bursts."
+        ),
+        "code_evidence": "Diff sets backoff factor to 0.0 or uses wait_fixed(0).",
+        "mechanism": (
+            "Zero backoff causes retries to execute instantly in tight loops, "
+            "concentrating retry rate and depriving downstream of recovery time."
+        ),
+    },
+    "H-AGGRESSIVE-TIMEOUT": {
+        "title": "Aggressive timeout reduction triggers premature timeouts before downstream can respond",
+        "description": (
+            "Lowered client timeout (RETRY_TIMEOUT_SECONDS < 1.0s) causes client-side "
+            "timeout before downstream processing completes."
+        ),
+        "code_evidence": "Diff sets RETRY_TIMEOUT_SECONDS < 1.0s.",
+        "mechanism": (
+            "Client aborts requests prematurely while downstream processing is in "
+            "flight, triggering unnecessary retries."
+        ),
+    },
+    "H-HTTP-DEPENDENCY": {
+        "title": "Unprotected downstream HTTP client call propagates downstream latency directly upstream",
+        "description": (
+            "Direct HTTP client call modified on critical user path without "
+            "circuit-breaker protection."
+        ),
+        "code_evidence": "Diff modifies client.post or httpx.Client invocation without circuit breaker.",
+        "mechanism": "Downstream latency propagates directly upstream blocking ingress worker threads.",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# LLM prompt builder
+# ---------------------------------------------------------------------------
+
+def _build_hypothesis_prompt(
+    signal_id: str,
+    signal_label: str,
+    diff_text: str,
+    code_context: str,
+    proxy_name: str,
+    calibrated_latency_ms: int,
+) -> str:
+    """Builds a tightly-scoped prompt asking the LLM to articulate the failure
+    mechanism for ONE specific detected signal, grounded in the actual diff and code."""
+
+    diff_excerpt = diff_text[:3000] if len(diff_text) > 3000 else diff_text
+    code_excerpt = code_context[:2000] if len(code_context) > 2000 else code_context
+
+    return (
+        "You are the ChangeProof reliability analysis engine. A PR diff has been "
+        "assessed and the following risk signal was detected:\n\n"
+        f"SIGNAL: {signal_label}\n\n"
+        "Your task is to explain WHY this specific diff creates a reliability risk. "
+        "Ground your explanation in the ACTUAL diff below — reference the specific "
+        "variable names, service name, configured values, and code structure you can "
+        "see. Do NOT use generic language that would apply to any diff.\n\n"
+        f"PR DIFF (or excerpt):\n```\n{diff_excerpt}\n```\n\n"
+        f"TARGET FILE SOURCE (or excerpt):\n```\n{code_excerpt}\n```\n\n"
+        f"FAULT INJECTION CONTEXT: proxy={proxy_name}, injected_latency={calibrated_latency_ms}ms\n\n"
+        "Respond with ONLY a valid JSON object matching this exact schema "
+        "(no extra text, no markdown outside the JSON block):\n"
+        "{\n"
+        '  "title": "A concise one-sentence title naming the exact failure mode, '
+        'referencing the actual variable/service name from the diff",\n'
+        '  "description": "2-3 sentence description explaining HOW this specific '
+        'change (cite the actual old→new values from the diff) causes the failure '
+        'under downstream latency. Name the actual service and variable.",\n'
+        '  "code_evidence": "One sentence quoting the specific added line(s) from '
+        'the diff that introduce the risk.",\n'
+        '  "mechanism": "One sentence explaining the causal chain from this '
+        'specific code change to observable retry amplification."\n'
+        "}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# LLM enrichment
+# ---------------------------------------------------------------------------
+
+def _enrich_hypothesis_via_llm(
+    hypothesis_id: str,
+    signal_label: str,
+    diff_text: str,
+    code_context: str,
+    proxy_name: str,
+    calibrated_latency_ms: int,
+    template: Dict[str, str],
+) -> Dict[str, str]:
+    """Attempts an LLM call to generate diff-grounded text fields.
+
+    Returns a dict with keys: title, description, code_evidence, mechanism.
+    Falls back to static template on any LLM failure.
+    """
+    prompt = _build_hypothesis_prompt(
+        signal_id=hypothesis_id,
+        signal_label=signal_label,
+        diff_text=diff_text,
+        code_context=code_context,
+        proxy_name=proxy_name,
+        calibrated_latency_ms=calibrated_latency_ms,
+    )
+
+    response = call_llm(prompt, max_tokens=512)
+    if not response:
+        return template
+
+    data = parse_json_response(response)
+
+    # Validate required fields — fall back to template for any missing/invalid field
+    result = {}
+    for field in ("title", "description", "code_evidence", "mechanism"):
+        val = data.get(field, "")
+        if isinstance(val, str) and len(val.strip()) > 10:
+            result[field] = val.strip()
+        else:
+            result[field] = template[field]
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def generate_candidate_hypotheses(
     signals: List[str],
     proxy_name: str = "payment-proxy",
     calibrated_latency_ms: int = 1500,
+    *,
+    diff_text: str = "",
+    code_context: str = "",
 ) -> List[Dict[str, Any]]:
-    """Generates one grounded hypothesis per detected risk signal."""
+    """Generates one grounded hypothesis per detected risk signal.
+
+    When diff_text or code_context is non-empty, makes a real LLM call to
+    produce hypothesis text that references the actual diff, variable names,
+    service names, and configured values. When both are empty, uses static
+    template text (preserving full backwards-compatibility for unit tests).
+
+    The structural fields (id, signal, label, rank, confidence, grounding keys)
+    are always set deterministically — only title, description, and grounding
+    text sub-fields are LLM-generated.
+
+    Args:
+        signals:               List of signal label strings from RiskAssessor.assess_diff().
+        proxy_name:            Toxiproxy proxy name resolved from topology.
+        calibrated_latency_ms: Injected fault latency in milliseconds.
+        diff_text:             Raw unified diff text (keyword-only, optional).
+        code_context:          Changed file source content (keyword-only, optional).
+
+    Returns:
+        List of hypothesis dicts, one per detected signal.
+    """
     hypotheses: List[Dict[str, Any]] = []
+    use_llm = bool(diff_text.strip() or code_context.strip())
 
     # Signal 1: Retry count increase
     if any("retry count increase" in s.lower() or "max_retries" in s.lower() for s in signals):
+        tmpl = _STATIC_TEMPLATES["H-RETRY-CEILING"]
+        if use_llm:
+            enriched = _enrich_hypothesis_via_llm(
+                "H-RETRY-CEILING",
+                "Aggressive retry count increase (max_retries >= 4)",
+                diff_text, code_context, proxy_name, calibrated_latency_ms, tmpl,
+            )
+        else:
+            enriched = tmpl
         hypotheses.append({
             "id": "H-RETRY-CEILING",
             "signal": "Aggressive retry count increase (max_retries >= 4)",
             "label": "retry_count_amplification",
-            "title": "Downstream latency induces retry amplification storm due to elevated retry ceiling",
-            "description": "Elevated retry ceiling (RETRIES_MAX >= 4) allows each stalled request to execute multiple consecutive retries.",
+            "title": enriched["title"],
+            "description": enriched["description"],
             "grounding": {
-                "code_evidence": "Diff contains added lines setting RETRIES_MAX >= 4.",
-                "mechanism": "High retry ceiling causes each stalled request to multiply downstream load up to RETRIES_MAX times.",
+                "code_evidence": enriched["code_evidence"],
+                "mechanism": enriched["mechanism"],
                 "calibrated_latency_ms": calibrated_latency_ms,
                 "proxy": proxy_name,
             },
@@ -30,15 +227,24 @@ def generate_candidate_hypotheses(
 
     # Signal 2: Removal of backoff
     if any("removal of backoff" in s.lower() or "immediate retry" in s.lower() for s in signals):
+        tmpl = _STATIC_TEMPLATES["H-NO-BACKOFF"]
+        if use_llm:
+            enriched = _enrich_hypothesis_via_llm(
+                "H-NO-BACKOFF",
+                "Removal of backoff / immediate retry execution",
+                diff_text, code_context, proxy_name, calibrated_latency_ms, tmpl,
+            )
+        else:
+            enriched = tmpl
         hypotheses.append({
             "id": "H-NO-BACKOFF",
             "signal": "Removal of backoff / immediate retry execution",
             "label": "zero_backoff_load_concentration",
-            "title": "Immediate unspaced retries concentrate downstream traffic and spike storm rate",
-            "description": "Removal of exponential backoff delay (RETRY_BACKOFF_FACTOR = 0.0) concentrates retries in rapid bursts.",
+            "title": enriched["title"],
+            "description": enriched["description"],
             "grounding": {
-                "code_evidence": "Diff sets backoff factor to 0.0 or uses wait_fixed(0).",
-                "mechanism": "Zero backoff causes retries to execute instantly in tight loops, concentrating retry rate and depriving downstream of recovery time.",
+                "code_evidence": enriched["code_evidence"],
+                "mechanism": enriched["mechanism"],
                 "calibrated_latency_ms": calibrated_latency_ms,
                 "proxy": proxy_name,
             },
@@ -48,15 +254,24 @@ def generate_candidate_hypotheses(
 
     # Signal 3: Timeout reduction
     if any("timeout reduction" in s.lower() or "timeout < 1.0s" in s.lower() for s in signals):
+        tmpl = _STATIC_TEMPLATES["H-AGGRESSIVE-TIMEOUT"]
+        if use_llm:
+            enriched = _enrich_hypothesis_via_llm(
+                "H-AGGRESSIVE-TIMEOUT",
+                "Aggressive timeout reduction (timeout < 1.0s)",
+                diff_text, code_context, proxy_name, calibrated_latency_ms, tmpl,
+            )
+        else:
+            enriched = tmpl
         hypotheses.append({
             "id": "H-AGGRESSIVE-TIMEOUT",
             "signal": "Aggressive timeout reduction (timeout < 1.0s)",
             "label": "premature_timeout_trigger",
-            "title": "Aggressive timeout reduction triggers premature timeouts before downstream can respond",
-            "description": "Lowered client timeout (RETRY_TIMEOUT_SECONDS < 1.0s) causes client-side timeout before downstream processing completes.",
+            "title": enriched["title"],
+            "description": enriched["description"],
             "grounding": {
-                "code_evidence": "Diff sets RETRY_TIMEOUT_SECONDS < 1.0s.",
-                "mechanism": "Client aborts requests prematurely while downstream processing is in flight, triggering unnecessary retries.",
+                "code_evidence": enriched["code_evidence"],
+                "mechanism": enriched["mechanism"],
                 "calibrated_latency_ms": calibrated_latency_ms,
                 "proxy": proxy_name,
             },
@@ -66,15 +281,24 @@ def generate_candidate_hypotheses(
 
     # Signal 4: Downstream HTTP client modification
     if any("downstream http" in s.lower() or "client call" in s.lower() for s in signals):
+        tmpl = _STATIC_TEMPLATES["H-HTTP-DEPENDENCY"]
+        if use_llm:
+            enriched = _enrich_hypothesis_via_llm(
+                "H-HTTP-DEPENDENCY",
+                "Downstream HTTP dependency modification",
+                diff_text, code_context, proxy_name, calibrated_latency_ms, tmpl,
+            )
+        else:
+            enriched = tmpl
         hypotheses.append({
             "id": "H-HTTP-DEPENDENCY",
             "signal": "Downstream HTTP dependency modification",
             "label": "unprotected_http_dependency",
-            "title": "Unprotected downstream HTTP client call propagates downstream latency directly upstream",
-            "description": "Direct HTTP client call modified on critical user path without circuit-breaker protection.",
+            "title": enriched["title"],
+            "description": enriched["description"],
             "grounding": {
-                "code_evidence": "Diff modifies client.post or httpx.Client invocation without circuit breaker.",
-                "mechanism": "Downstream latency propagates directly upstream blocking ingress worker threads.",
+                "code_evidence": enriched["code_evidence"],
+                "mechanism": enriched["mechanism"],
                 "calibrated_latency_ms": calibrated_latency_ms,
                 "proxy": proxy_name,
             },
@@ -175,4 +399,3 @@ def evaluate_hypotheses_evidence(
         evaluated.append(h_copy)
 
     return evaluated
-

@@ -1,4 +1,4 @@
-"""Unit tests for FastAPI target microservices logic."""
+﻿"""Unit tests for FastAPI target microservices logic."""
 import pytest
 from fastapi.testclient import TestClient
 from app.payment.main import app as payment_app
@@ -46,7 +46,7 @@ def test_checkout_health(checkout_client):
     data = res.json()
     assert data["status"] == "ok"
     assert data["service"] == "checkout"
-    assert data["retries_max"] == 3
+    assert data["retries_max"] == 2  # Committed baseline default
 
 def test_checkout_metrics_endpoint(checkout_client):
     res = checkout_client.get("/metrics")
