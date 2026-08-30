@@ -47,8 +47,8 @@ measurements:
 assertions:
   pre_patch:
   - metric: retries_per_request
-    condition: '>= 1.8'
-    description: Unspaced immediate retries execute under downstream latency
+    condition: '> 2.0'
+    description: Retry amplification storm visible as >2.0 retries per failed request
   - metric: total_requests
     condition: '>= 100'
     description: Sufficient workload request sample size under failure

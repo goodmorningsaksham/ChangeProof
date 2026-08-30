@@ -154,3 +154,4 @@ The system maintains only two intentional, disclosed design differences:
 - `changeproof/ci_pipeline.py` is **fully retired** as a 7-line compatibility forwarding shim to `cli_synth_verify.main()`.
 - All active workflows in `.github/workflows/` invoke `python -m changeproof.cli_synth_verify` directly.
 
+
