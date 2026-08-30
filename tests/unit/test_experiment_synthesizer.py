@@ -112,3 +112,59 @@ def test_synthesize_generalizes_to_alternate_topology(alt_topology):
     assert any(m["labels"].get("service") == "inventory" for m in spec["measurements"]["metrics"])
     assert any(m["labels"].get("target") == "warehouse" for m in spec["measurements"]["metrics"])
     assert spec["target"]["compose_file"] == compose_p
+
+def test_resolve_entrypoint_route_fastpath_fastapi():
+    synthesizer = ExperimentSynthesizer()
+    fastapi_code = """
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.post("/custom/orders")
+def submit():
+    return {}
+"""
+    # Fast path matches @app.post
+    route, payload = synthesizer.resolve_entrypoint_route_via_agent(fastapi_code)
+    # Even if called directly, fallback correctly parses or extracts
+    assert route in ("/custom/orders", "/orders")
+
+
+def test_resolve_entrypoint_route_agent_fallback_flask():
+    synthesizer = ExperimentSynthesizer()
+    flask_code = """
+from flask import Flask, request
+app = Flask(__name__)
+
+@app.route("/api/v2/process-payment", methods=["POST"])
+def process():
+    data = request.get_json()
+    order_id = data.get("order_id")
+    amount = data.get("amount")
+    return {"status": "ok"}
+"""
+    route, payload = synthesizer.resolve_entrypoint_route_via_agent(flask_code)
+    assert route == "/api/v2/process-payment"
+    assert "order_id" in payload or "amount" in payload
+
+
+def test_resolve_entrypoint_route_agent_fallback_express():
+    synthesizer = ExperimentSynthesizer()
+    express_code = """
+const express = require('express');
+const app = express();
+
+app.post('/api/v1/checkout/submit', (req, res) => {
+    const { item_id, quantity } = req.body;
+    res.json({ status: 'ok' });
+});
+"""
+    route, payload = synthesizer.resolve_entrypoint_route_via_agent(express_code)
+    assert route == "/api/v1/checkout/submit"
+    assert "item_id" in payload or "quantity" in payload
+
+
+def test_resolve_entrypoint_route_agent_fallback_fails_on_unparseable():
+    synthesizer = ExperimentSynthesizer()
+    empty_code = "print('hello world without routes')"
+    with pytest.raises(ValueError, match="route discovery failed"):
+        synthesizer.resolve_entrypoint_route_via_agent(empty_code)

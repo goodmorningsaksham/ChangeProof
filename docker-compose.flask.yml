@@ -1,0 +1,36 @@
+﻿version: '3.8'
+
+services:
+  flask-service:
+    build:
+      context: ./app/flask_service
+      dockerfile: Dockerfile
+    ports:
+      - "8005:8005"
+    environment:
+      - PORT=8005
+      - PAYMENT_SERVICE_URL=http://toxiproxy:18002/authorize
+      - RETRIES_MAX=8
+      - RETRY_TIMEOUT_SECONDS=0.5
+      - RETRY_BACKOFF_FACTOR=0.0
+    depends_on:
+      - toxiproxy
+
+  payment-service:
+    build:
+      context: ./app/payment
+    ports:
+      - "8002:8002"
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    ports:
+      - "8474:8474"
+      - "18002:18002"
+    depends_on:
+      - payment-service
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    ports:
+      - "9090:9090"
