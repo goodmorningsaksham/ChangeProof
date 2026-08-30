@@ -1,5 +1,5 @@
 ﻿"""Unit tests for multi-signal candidate hypothesis generation and telemetry evaluation."""
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from changeproof.hypothesis_evaluator import generate_candidate_hypotheses, evaluate_hypotheses_evidence
 from changeproof.certificate import CertificateGenerator
 
