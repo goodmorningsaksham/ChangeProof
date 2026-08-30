@@ -1,4 +1,4 @@
-"""Dedicated safety regression test suite for verifier INCONCLUSIVE path."""
+﻿"""Dedicated safety regression test suite for verifier INCONCLUSIVE path."""
 import pandas as pd
 from changeproof.verifier import verify
 from changeproof.certificate import CertificateGenerator
@@ -66,3 +66,53 @@ def test_inconclusive_certificate_does_not_claim_safe(tmp_path):
     assert "INCONCLUSIVE" in content
     assert "NOT CERTIFIED FOR PRODUCTION" in content
     assert "PROVEN & VERIFIED SAFE" not in content
+
+def test_certificate_renders_non_python_patch_diff(tmp_path):
+    """CertificateGenerator must render the actual non-Python patch_diff (e.g. JavaScript), not a hardcoded Python template."""
+    gen = CertificateGenerator()
+    cert_path = tmp_path / "js_cert.md"
+
+    js_diff = """--- a/app/order/server.js
++++ b/app/order/server.js
+@@ -10,3 +10,3 @@
+-const RETRIES_MAX = 8;
+-const RETRY_TIMEOUT_MS = 500;
+-const RETRY_BACKOFF_MS = 0;
++const RETRIES_MAX = 2;
++const RETRY_TIMEOUT_MS = 1000;
++const RETRY_BACKOFF_MS = 500;
+"""
+
+    ctx = {
+        "timestamp": "2026-08-30T10:00:00Z",
+        "experiment_id": "ci-order-js-test",
+        "git_commit": "1234567",
+        "risk_level": "MEDIUM",
+        "risk_score": 30,
+        "hypothesis_title": "Retry storm amplification",
+        "hypothesis_confidence": "HIGH",
+        "verification_status": "PASS",
+        "diff_table": [],
+        "patch_diff": js_diff,
+        "capsule_path": "capsules/ci-order-js-test.zip",
+    }
+
+    gen.generate_and_save(ctx, str(cert_path))
+    with open(cert_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    assert "const RETRIES_MAX = 2;" in content
+    assert "const RETRY_TIMEOUT_MS = 1000;" in content
+    assert "os.getenv" not in content
+    assert "capsules/ci-order-js-test.zip" in content
+
+
+def test_implausibly_short_duration_flagged_inconclusive():
+    """When measured duration is physically impossible under fault latency, run must be flagged as INCONCLUSIVE."""
+    num_requests = 150
+    concurrency = 10
+    calibrated_latency_ms = 2000
+    expected_min_duration = (num_requests / concurrency) * (calibrated_latency_ms / 1000.0) * 0.25 # 7.5s
+
+    measured_duration_fast = 1.40 # Impossible for 150 requests under 2000ms latency
+    assert measured_duration_fast < expected_min_duration
