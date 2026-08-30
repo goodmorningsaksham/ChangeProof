@@ -1,0 +1,8 @@
+﻿[
+  {
+    "name": "flask-payment-proxy",
+    "listen": "0.0.0.0:18005",
+    "upstream": "payment-service:8002",
+    "enabled": true
+  }
+]

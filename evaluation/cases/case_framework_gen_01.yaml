@@ -1,8 +1,8 @@
 id: case-framework-gen-01
 version: '1.1'
 title: 'Topology-Synthesized: Downstream Latency Induces Retry Amplification (flask
-  -> payment)'
-description: 'Automated synthesis: flask-service calls payment-service over payment-proxy.
+  -> toxiproxy-flask)'
+description: 'Automated synthesis: flask-service calls toxiproxy-flask over flask-payment-proxy.
   Injected latency (1500ms) calibrated against client timeout to reproduce retry storm.'
 target:
   compose_file: docker-compose.flask.yml
@@ -11,8 +11,8 @@ target:
   changed_file: app/flask_service/app.py
 fault:
   tool: toxiproxy
-  proxy: payment-proxy
-  admin_url: http://localhost:8474
+  proxy: flask-payment-proxy
+  admin_url: http://localhost:8475
   toxic:
     type: latency
     attributes:
@@ -37,7 +37,7 @@ measurements:
   - name: retry_count_total
     labels:
       service: flask
-      target: payment
+      target: toxiproxy-flask
   - name: http_errors_total
     labels:
       service: flask

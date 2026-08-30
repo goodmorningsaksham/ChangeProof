@@ -1,4 +1,4 @@
-﻿"""Topology-driven experiment specification synthesizer for ChangeProof."""
+"""Topology-driven experiment specification synthesizer for ChangeProof."""
 import os
 import re
 import json
@@ -25,13 +25,13 @@ class ExperimentSynthesizer:
     def _load_compose(self) -> Dict[str, Any]:
         if not os.path.exists(self.compose_path):
             raise FileNotFoundError(f"Docker compose file not found: {self.compose_path}")
-        with open(self.compose_path, "r", encoding="utf-8") as f:
+        with open(self.compose_path, "r", encoding="utf-8-sig") as f:
             return yaml.safe_load(f) or {}
 
     def _load_toxiproxy_config(self) -> List[Dict[str, Any]]:
         if os.path.exists(self.toxiproxy_config_path):
             try:
-                with open(self.toxiproxy_config_path, "r", encoding="utf-8") as f:
+                with open(self.toxiproxy_config_path, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
                     if isinstance(data, list):
                         return data
@@ -219,23 +219,32 @@ class ExperimentSynthesizer:
         compose_data: Dict[str, Any],
     ) -> Tuple[str, str]:
         """Step 3: Resolve Toxiproxy proxy name and admin URL."""
-        toxi_cfg = compose_data.get("services", {}).get("toxiproxy", {})
+        services = compose_data.get("services", {})
+        toxi_cfg: Dict[str, Any] = {}
+        for s_name, cfg in services.items():
+            if "toxi" in s_name.lower():
+                toxi_cfg = cfg
+                break
+
         admin_port = 8474
         for p in toxi_cfg.get("ports", []):
             p_str = str(p)
             if "8474" in p_str:
-                admin_port = 8474
+                if ":" in p_str:
+                    admin_port = int(p_str.split(":")[0])
+                else:
+                    admin_port = 8474
                 break
 
         admin_url = f"http://localhost:{admin_port}"
 
-        # Try to find proxy name in toxiproxy_init.json
+        # Try to find proxy name in toxiproxy config
         toxi_config = self._load_toxiproxy_config()
         if toxi_config:
             for entry in toxi_config:
                 upstream = entry.get("upstream", "")
                 listen = entry.get("listen", "")
-                if target_service in upstream or (target_port and f":{target_port}" in listen):
+                if (target_service and target_service in upstream) or (target_port and f":{target_port}" in listen) or (target_port and str(target_port) in listen):
                     return entry.get("name", "payment-proxy"), admin_url
 
         # Canonical fallback proxy naming: {target_clean}-proxy
