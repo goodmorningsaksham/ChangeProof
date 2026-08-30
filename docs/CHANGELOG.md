@@ -250,3 +250,4 @@ Both are real. The CI run with `RETRY_TIMEOUT_SECONDS=0.5` is **canonical** Ã¢
   - Replay verified for both capsules via `python changeproof/replay.py` -> **`PASS`**.
 - **Decision / Learning**: 
   The frozen fault calibration formula reliably transfers to both the baseline floor regime (<0.75s) and the multiplicative scaling regime (>=0.75s) on novel timeout values without empirical re-tuning.
+

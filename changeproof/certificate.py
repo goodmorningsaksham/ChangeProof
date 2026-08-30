@@ -47,7 +47,22 @@ Generated: {{ timestamp }} | Experiment: {{ experiment_id }} | Commit: {{ git_co
 | {{ row.metric }} | {{ row.phase }} | {{ row.observed_value }} | `{{ row.condition }}` | {{ "YES" if row.condition_met else "NO" }} |
 {% endfor %}
 
-{% if patch_diff %}
+{% if patch_attempts and patch_attempts | length > 1 %}
+## Remediation Patch Trajectory (Agentic Feedback Loop)
+The initial remediation patch was insufficient and underwent automated self-correction based on empirical verification telemetry.
+
+{% for att in patch_attempts %}
+### Patch Attempt {{ att.attempt }} — Verdict: `[{{ att.verdict }}]`
+- **Reasoning / Diagnosis** [{{ att.source | default('LLM') | upper }}]: {{ att.reasoning }}
+- **Observed Post-Patch Metrics**: {{ att.patched_summary.retries_per_request }} retries/req (Rate: {{ att.patched_summary.rate_per_min }}/min, Throughput: {{ att.patched_summary.throughput_req_per_sec }} req/s)
+- **Verification Result**: {{ att.reason }}
+
+```diff
+{{ att.patch_diff }}
+```
+
+{% endfor %}
+{% elif patch_diff %}
 ## Recommended Remediation Patch
 {% if patch_reasoning %}
 > **Remediation Reasoning** [{{ patch_source | default('LLM') | upper }}]: {{ patch_reasoning }}

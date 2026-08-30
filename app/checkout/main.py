@@ -1,11 +1,9 @@
-﻿"""Checkout Service â€” Core business workflow with configurable downstream retries."""
-import os
+﻿import os
 import time
-from typing import Optional
-from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, wait_fixed, retry_if_exception_type, RetryCallState
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from tenacity import retry, stop_after_attempt, wait_fixed, wait_exponential, retry_if_exception_type
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from fastapi.responses import Response
 
@@ -24,8 +22,8 @@ CHECKOUT_REQUESTS_TOTAL = Counter(
     ["status"],
 )
 CHECKOUT_LATENCY_SECONDS = Histogram(
-    "checkout_request_duration_seconds",
-    "Duration of checkout requests in seconds",
+    "checkout_latency_seconds",
+    "Latency of checkout processing in seconds",
 )
 RETRY_COUNT_TOTAL = Counter(
     "retry_count_total",
@@ -47,21 +45,16 @@ HTTP_ERRORS_TOTAL = Counter(
 RETRY_COUNT_TOTAL.labels(service="checkout", target="payment").inc(0)
 RETRY_EXHAUSTED_TOTAL.labels(service="checkout", target="payment").inc(0)
 CHECKOUT_REQUESTS_TOTAL.labels(status="success").inc(0)
+CHECKOUT_REQUESTS_TOTAL.labels(status="failure").inc(0)
+
 
 class CheckoutRequest(BaseModel):
     order_id: str
     amount: float
-    user_id: Optional[str] = "user_default"
-    force_payment_failure: Optional[bool] = False
+    customer_id: str
 
-class CheckoutResponse(BaseModel):
-    order_id: str
-    status: str
-    payment_id: Optional[str] = None
-    retries_attempted: int = 0
-    total_latency_ms: float
 
-def record_retry_callback(retry_state: RetryCallState):
+def record_retry_callback(retry_state):
     """Increment retry counter on every retry attempt.
 
     tenacity calls before_sleep with attempt_number = the attempt that just
@@ -72,31 +65,33 @@ def record_retry_callback(retry_state: RetryCallState):
     if retry_state.attempt_number >= 1:
         RETRY_COUNT_TOTAL.labels(service="checkout", target="payment").inc()
 
+
 @app.get("/health")
 def health_check():
     return {
         "status": "ok",
         "service": "checkout",
-        "payment_url": PAYMENT_SERVICE_URL,
         "retries_max": RETRIES_MAX,
         "retry_timeout_s": RETRY_TIMEOUT_SECONDS,
         "retry_backoff_factor": RETRY_BACKOFF_FACTOR,
     }
 
+
 @app.get("/metrics")
 def metrics():
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-def call_payment_with_retries(order_id: str, amount: float, force_failure: bool = False) -> tuple[dict, int]:
-    """Call payment service with explicit retry and timeout semantics."""
-    attempts = 0
-    
-    # Define retry policy dynamically based on service configuration
-    wait_strategy = (
-        wait_exponential(multiplier=RETRY_BACKOFF_FACTOR, min=0.1, max=3.0)
-        if RETRY_BACKOFF_FACTOR > 0
-        else wait_fixed(0)
-    )
+
+@app.post("/checkout")
+def process_checkout(req: CheckoutRequest):
+    if RETRY_BACKOFF_FACTOR > 0:
+        wait_strategy = wait_exponential(
+            multiplier=RETRY_BACKOFF_FACTOR,
+            min=0.1,
+            max=5.0,
+        )
+    else:
+        wait_strategy = wait_fixed(0)
 
     @retry(
         stop=stop_after_attempt(RETRIES_MAX),
@@ -105,80 +100,50 @@ def call_payment_with_retries(order_id: str, amount: float, force_failure: bool 
         before_sleep=record_retry_callback,
         reraise=True,
     )
-    def _execute_http_call():
-        nonlocal attempts
-        attempts += 1
+    def call_payment_service():
         with httpx.Client(timeout=RETRY_TIMEOUT_SECONDS) as client:
             resp = client.post(
                 f"{PAYMENT_SERVICE_URL}/authorize",
-                json={
-                    "order_id": order_id,
-                    "amount": amount,
-                    "force_failure": force_failure,
-                },
+                json={"order_id": req.order_id, "amount": req.amount, "customer_id": req.customer_id},
             )
             resp.raise_for_status()
             return resp.json()
 
-    try:
-        payment_data = _execute_http_call()
-        return payment_data, (attempts - 1)
-    except Exception as e:
-        RETRY_EXHAUSTED_TOTAL.labels(service="checkout", target="payment").inc()
-        raise e
-
-@app.post("/checkout", response_model=CheckoutResponse)
-def checkout(req: CheckoutRequest):
     start_time = time.time()
-    
     try:
-        payment_data, retries_made = call_payment_with_retries(
-            order_id=req.order_id,
-            amount=req.amount,
-            force_failure=bool(req.force_payment_failure),
-        )
-        
+        payment_res = call_payment_service()
         duration = time.time() - start_time
         CHECKOUT_LATENCY_SECONDS.observe(duration)
         CHECKOUT_REQUESTS_TOTAL.labels(status="success").inc()
-        
-        return CheckoutResponse(
-            order_id=req.order_id,
-            status="completed",
-            payment_id=payment_data.get("payment_id"),
-            retries_attempted=retries_made,
-            total_latency_ms=round(duration * 1000, 2),
-        )
-    except httpx.HTTPStatusError as e:
-        HTTP_ERRORS_TOTAL.labels(error_type="payment_status_error").inc()
-        CHECKOUT_REQUESTS_TOTAL.labels(status="payment_failed").inc()
+        return {
+            "status": "success",
+            "order_id": req.order_id,
+            "payment": payment_res,
+            "duration_seconds": round(duration, 3),
+        }
+    except httpx.HTTPStatusError as exc:
         duration = time.time() - start_time
         CHECKOUT_LATENCY_SECONDS.observe(duration)
+        CHECKOUT_REQUESTS_TOTAL.labels(status="failure").inc()
+        RETRY_EXHAUSTED_TOTAL.labels(service="checkout", target="payment").inc()
+        HTTP_ERRORS_TOTAL.labels(error_type=f"http_{exc.response.status_code}").inc()
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Downstream payment failed: {str(e)}",
+            status_code=exc.response.status_code,
+            detail=f"Payment service rejected: {exc.response.text}",
         )
-    except (httpx.RequestError, httpx.TimeoutException) as e:
-        HTTP_ERRORS_TOTAL.labels(error_type="payment_network_or_timeout").inc()
-        CHECKOUT_REQUESTS_TOTAL.labels(status="timeout_or_unreachable").inc()
+    except Exception as exc:
         duration = time.time() - start_time
         CHECKOUT_LATENCY_SECONDS.observe(duration)
+        CHECKOUT_REQUESTS_TOTAL.labels(status="failure").inc()
+        RETRY_EXHAUSTED_TOTAL.labels(service="checkout", target="payment").inc()
+        HTTP_ERRORS_TOTAL.labels(error_type="timeout_or_unreachable").inc()
         raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=f"Payment service timeout or unreachable: {str(e)}",
+            status_code=500,
+            detail=f"Payment service timeout or unreachable: {str(exc)}",
         )
-    except Exception as e:
-        HTTP_ERRORS_TOTAL.labels(error_type="internal_error").inc()
-        CHECKOUT_REQUESTS_TOTAL.labels(status="internal_error").inc()
-        duration = time.time() - start_time
-        CHECKOUT_LATENCY_SECONDS.observe(duration)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Checkout processing error: {str(e)}",
-        )
+
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8001"))
     uvicorn.run(app, host="0.0.0.0", port=port)
-

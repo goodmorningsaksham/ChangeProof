@@ -22,7 +22,7 @@ from changeproof.risk_assessor import RiskAssessor
 from changeproof.experiment_synthesizer import ExperimentSynthesizer, _clean_service_name
 from changeproof.hypothesis_evaluator import generate_candidate_hypotheses, evaluate_hypotheses_evidence
 from changeproof.toxiproxy_client import ToxiproxyClient
-from changeproof.verifier import verify
+from changeproof.verifier import verify, VerificationResult
 from changeproof.certificate import CertificateGenerator
 from changeproof.capsule import CapsulePackager
 from changeproof.llm_client import call_llm, parse_json_response
@@ -139,10 +139,10 @@ def _build_patch_prompt(
         '  "reasoning": "2-3 sentences explaining WHY you chose these specific values '
         'based on the observed severity and the specific variables in the diff",\n'
         '  "retries_max": <integer>,\n'
-        '  "timeout_s": <float, seconds — use null if not applicable to this diff>,\n'
-        '  "backoff_factor": <float — use null if not applicable to this diff>,\n'
-        '  "timeout_ms": <integer, milliseconds — use null if not JS/not applicable>,\n'
-        '  "backoff_ms": <integer, milliseconds — use null if not JS/not applicable>\n'
+        '  "timeout_s": <float, seconds â€” use null if not applicable to this diff>,\n'
+        '  "backoff_factor": <float â€” use null if not applicable to this diff>,\n'
+        '  "timeout_ms": <integer, milliseconds â€” use null if not JS/not applicable>,\n'
+        '  "backoff_ms": <integer, milliseconds â€” use null if not JS/not applicable>\n'
         "}"
     )
 
@@ -211,6 +211,116 @@ def generate_llm_patch(
         "timeout_ms": 1000,
         "backoff_ms": 500,
         "reasoning": "LLM FALLBACK: API unavailable",
+        "source": "fallback",
+    }
+
+
+
+def _build_diagnostic_prompt(
+    diff_text: str,
+    code: str,
+    base_summary: Dict[str, Any],
+    attempt_record: Dict[str, Any],
+    signals: List[str],
+) -> str:
+    """Builds a prompt asking the LLM to diagnose why its prior remediation patch
+    failed verification and propose revised, stronger values for Attempt 2."""
+    diff_excerpt = diff_text[:2000] if len(diff_text) > 2000 else diff_text
+    code_excerpt = code[:2000] if len(code) > 2000 else code
+    retries_base = base_summary.get("retries_per_request", 0.0)
+    post_summary = attempt_record.get("patched_summary", {})
+    retries_post = post_summary.get("retries_per_request", 0.0)
+    rate_post = post_summary.get("rate_per_min", 0.0)
+    att_reason = attempt_record.get("reason", "Assertion retries_per_request <= 1.1 failed")
+    prev_prop = attempt_record.get("proposal", {})
+    prev_reasoning = attempt_record.get("reasoning", "")
+
+    return (
+        "You are the ChangeProof remediation engine diagnosing a failed patch attempt.\n\n"
+        "BACKGROUND:\n"
+        f"A PR diff caused an initial retry storm ({retries_base:.3f} retries/req pre-patch).\n"
+        f"In Attempt 1, you proposed the following remediation values:\n"
+        f"  retries_max: {prev_prop.get('retries_max')}\n"
+        f"  timeout_s: {prev_prop.get('timeout_s')} (or timeout_ms: {prev_prop.get('timeout_ms')})\n"
+        f"  backoff_factor: {prev_prop.get('backoff_factor')} (or backoff_ms: {prev_prop.get('backoff_ms')})\n"
+        f"  Attempt 1 Reasoning: {prev_reasoning}\n\n"
+        "EMPIRICAL VERIFICATION RESULT (Attempt 1 FAILED):\n"
+        f"  Observed post-patch retries_per_request: {retries_post:.3f} (Assertion threshold: <= 1.1)\n"
+        f"  Observed post-patch rate_per_min: {rate_post:.2f}\n"
+        f"  Failure Reason: {att_reason}\n\n"
+        f"DETECTED RISK SIGNALS: {', '.join(signals)}\n"
+        f"ORIGINAL DIFF:\n```\n{diff_excerpt}\n```\n\n"
+        f"CURRENT FILE CODE:\n```\n{code_excerpt}\n```\n\n"
+        "DIAGNOSTIC TASK:\n"
+        "1. Diagnose why Attempt 1 was insufficient to bring retries_per_request down to <= 1.1.\n"
+        "2. Identify the unaddressed failure mechanism (e.g. was retries_max still too high, was backoff insufficient, or was timeout still triggering premature aborts?).\n"
+        "3. Propose REVISED, stronger remediation values for Attempt 2.\n\n"
+        "CONSTRAINTS:\n"
+        "- RETRIES_MAX must be in [1, 5]\n"
+        "- RETRY_TIMEOUT_SECONDS in [0.3, 5.0]s, RETRY_BACKOFF_FACTOR in [0.1, 2.0]\n"
+        "- For JS: RETRY_TIMEOUT_MS in [300, 5000]ms, RETRY_BACKOFF_MS in [100, 2000]ms\n\n"
+        "Respond with ONLY a valid JSON object:\n"
+        "{\n"
+        '  "diagnosis": "<detailed diagnosis explaining why Attempt 1 failed and what Attempt 2 adjusts>",\n'
+        '  "reasoning": "<revised rationale for Attempt 2>",\n'
+        '  "retries_max": <integer between 1 and 5>,\n'
+        '  "timeout_s": <float or null>,\n'
+        '  "backoff_factor": <float or null>,\n'
+        '  "timeout_ms": <integer or null>,\n'
+        '  "backoff_ms": <integer or null>\n'
+        "}"
+    )
+
+
+def diagnose_and_revise_patch(
+    code: str,
+    diff_text: str,
+    base_summary: Dict[str, Any],
+    attempt_record: Dict[str, Any],
+    signals: List[str],
+) -> Dict[str, Any]:
+    """Calls LLM with empirical verification failure feedback to diagnose and revise patch."""
+    prompt = _build_diagnostic_prompt(diff_text, code, base_summary, attempt_record, signals)
+    response = call_llm(prompt, max_tokens=2048)
+    if response:
+        data = parse_json_response(response)
+        if data and ("diagnosis" in data or "reasoning" in data or "retries_max" in data):
+            try:
+                raw_retries = data.get("retries_max")
+                raw_timeout_s = data.get("timeout_s")
+                raw_backoff = data.get("backoff_factor")
+                raw_timeout_ms = data.get("timeout_ms")
+                raw_backoff_ms = data.get("backoff_ms")
+                diag = data.get("diagnosis", "")
+                reasoning = data.get("reasoning", "")
+                full_reasoning = f"{diag} {reasoning}".strip() if diag else reasoning
+
+                retries_max = int(_clamp(raw_retries, 1, 5, "retries_max")) if raw_retries is not None else 1
+                timeout_s = _clamp(raw_timeout_s, 0.3, 5.0, "timeout_s") if raw_timeout_s is not None else None
+                backoff_factor = _clamp(raw_backoff, 0.1, 2.0, "backoff_factor") if raw_backoff is not None else None
+                timeout_ms = int(_clamp(raw_timeout_ms, 300, 5000, "timeout_ms")) if raw_timeout_ms is not None else None
+                backoff_ms = int(_clamp(raw_backoff_ms, 100, 2000, "backoff_ms")) if raw_backoff_ms is not None else None
+
+                return {
+                    "retries_max": retries_max,
+                    "timeout_s": timeout_s,
+                    "backoff_factor": backoff_factor,
+                    "timeout_ms": timeout_ms,
+                    "backoff_ms": backoff_ms,
+                    "reasoning": full_reasoning,
+                    "source": "llm",
+                }
+            except Exception as e:
+                print(f"[LLM DIAGNOSTIC PARSE ERROR] {e}")
+
+    # Fallback if diagnostic LLM call fails
+    return {
+        "retries_max": 1,
+        "timeout_s": 1.0,
+        "backoff_factor": 1.0,
+        "timeout_ms": 1000,
+        "backoff_ms": 1000,
+        "reasoning": "Attempt 1 failed. Diagnostic fallback proposes minimum retry ceiling (1) and generous backoff delay.",
         "source": "fallback",
     }
 
@@ -472,114 +582,163 @@ def run_synthetic_ci(
     df_base = collect_via_direct_scrape(dur_base, retries_base, reqs_base)
     df_base.to_csv(base_csv, index=False)
 
-    # Step 7: Apply Remediation Patch to the resolved target file (LLM-grounded values)
-    print(f"\n=== STEP 7: APPLYING LLM-GROUNDED REMEDIATION PATCH TO {target_file} ===")
-    patch_diff_str = ""
-    if os.path.exists(target_file):
-        with open(target_file, "r", encoding="utf-8") as f:
-            code = f.read()
+    # Step 7 to 9: Iterative Remediation & Verification Feedback Loop (Max 2 Attempts)
+    patch_attempts: List[Dict[str, Any]] = []
+    final_ver_res: VerificationResult = VerificationResult(status="INCONCLUSIVE", reason="No patch attempts executed")
+    final_patched_summary: Dict[str, Any] = {}
+    final_patch_diff_str: str = ""
+    final_patch_reasoning: str = ""
+    final_patch_source: str = "llm"
+    patched_csv: str = os.path.join(output_dir, "metrics_patched.csv")
+    max_patch_attempts = 2
 
-        # Ask the LLM to reason from observed failure severity and propose bounded values.
-        # verifier.verify() in Step 9 is the sole arbiter -- LLM never auto-approves.
-        patch_proposal = generate_llm_patch(
-            code=code,
-            diff_text=diff_text,
-            base_summary=base_summary,
-            signals=risk_res["signals"],
+    for attempt in range(1, max_patch_attempts + 1):
+        print(f"\n=== STEP 7: REMEDIATION PATCH (ATTEMPT {attempt}/{max_patch_attempts}) ===")
+        patch_diff_str = ""
+        if os.path.exists(target_file):
+            with open(target_file, "r", encoding="utf-8") as f:
+                code = f.read()
+
+            if attempt == 1:
+                patch_proposal = generate_llm_patch(
+                    code=code,
+                    diff_text=diff_text,
+                    base_summary=base_summary,
+                    signals=risk_res["signals"],
+                )
+            else:
+                print("\n[AGENTIC FEEDBACK LOOP] Triggering LLM diagnosis and patch revision based on Attempt 1 failure...")
+                patch_proposal = diagnose_and_revise_patch(
+                    code=code,
+                    diff_text=diff_text,
+                    base_summary=base_summary,
+                    attempt_record=patch_attempts[0],
+                    signals=risk_res["signals"],
+                )
+
+            patch_source = patch_proposal["source"]
+            patch_reasoning = patch_proposal["reasoning"]
+            print(f"[PATCH SOURCE: {patch_source.upper()}] {patch_reasoning}")
+
+            remediated_code = _apply_patch_values(code, patch_proposal)
+
+            with open(target_file, "w", encoding="utf-8") as f:
+                f.write(remediated_code)
+            print(f"Wrote remediated code to {target_file}")
+
+            # Generate genuine language-agnostic unified diff
+            import difflib
+            diff_lines = list(difflib.unified_diff(
+                code.splitlines(keepends=True),
+                remediated_code.splitlines(keepends=True),
+                fromfile=f"a/{target_file}",
+                tofile=f"b/{target_file}",
+            ))
+            patch_diff_str = "".join(diff_lines)
+            if not patch_diff_str.strip():
+                patch_diff_str = (
+                    f"--- a/{target_file}\n+++ b/{target_file}\n"
+                    "@@ -1,1 +1,1 @@\n"
+                    "# No textual diff: proposed values already match code state.\n"
+                )
+
+            patch_diff_file = os.path.join(output_dir, f"patch_attempt_{attempt}.diff" if attempt > 1 else "patch.diff")
+            with open(patch_diff_file, "w", encoding="utf-8") as f:
+                f.write(patch_diff_str)
+            subprocess.run(["docker", "compose", "-f", compose_file, "build", changed_service], check=False)
+            subprocess.run(["docker", "compose", "-f", compose_file, "up", "-d", changed_service], check=False)
+            time.sleep(4)
+
+        # Step 8: PATCHED Run
+        print(f"\n=== STEP 8: EXECUTING PATCHED WORKLOAD (ATTEMPT {attempt}) ({num_workload_requests} requests, concurrency {workload_concurrency}) ===")
+        t0_p = scrape_metrics()
+        dur_post = execute_workload(
+            url=target_url,
+            payload=entrypoint_payload,
+            num_requests=num_workload_requests,
+            concurrency=workload_concurrency,
         )
-        patch_source = patch_proposal["source"]
-        patch_reasoning = patch_proposal["reasoning"]
-        print(f"[PATCH SOURCE: {patch_source.upper()}] {patch_reasoning}")
+        dur_post = max(dur_post, 1.0)
+        time.sleep(2)
+        t1_p = scrape_metrics()
 
-        remediated_code = _apply_patch_values(code, patch_proposal)
+        retries_post = max(t1_p["retries"] - t0_p["retries"], 0.0)
+        reqs_post = max(t1_p["requests"] - t0_p["requests"], 0.0)
+        if reqs_post == 0:
+            reqs_post = float(num_workload_requests)
 
-        with open(target_file, "w", encoding="utf-8") as f:
-            f.write(remediated_code)
-        print(f"Wrote remediated code to {target_file}")
+        retries_per_req_post = round(retries_post / reqs_post, 3)
+        rate_post = round((retries_post / dur_post) * 60.0, 2)
+        tp_post = round(reqs_post / dur_post, 2)
 
-        # Generate genuine language-agnostic unified diff
-        import difflib
-        diff_lines = list(difflib.unified_diff(
-            code.splitlines(keepends=True),
-            remediated_code.splitlines(keepends=True),
-            fromfile=f"a/{target_file}",
-            tofile=f"b/{target_file}",
-        ))
-        patch_diff_str = "".join(diff_lines)
-        if not patch_diff_str.strip():
-            patch_diff_str = (
-                f"--- a/{target_file}\n+++ b/{target_file}\n"
-                "@@ -1,1 +1,1 @@\n"
-                "# No textual diff: proposed values already match code state.\n"
-            )
+        print(f"PATCHED (Attempt {attempt}) Results: {retries_per_req_post} retries/req | {rate_post:.2f}/min | {tp_post:.2f} req/s (Duration: {dur_post:.2f}s)")
 
-        patch_diff_file = os.path.join(output_dir, "patch.diff")
-        with open(patch_diff_file, "w", encoding="utf-8") as f:
-            f.write(patch_diff_str)
-        subprocess.run(["docker", "compose", "-f", compose_file, "build", changed_service], check=False)
-        subprocess.run(["docker", "compose", "-f", compose_file, "up", "-d", changed_service], check=False)
-        time.sleep(4)
+        patched_summary = {
+            "retries_per_request": retries_per_req_post,
+            "total_requests": int(reqs_post),
+            "throughput_req_per_sec": tp_post,
+            "rate_per_min": rate_post,
+            "measured_duration_seconds": dur_post,
+        }
 
-    # Step 8: PATCHED Run
-    print(f"\n=== STEP 8: EXECUTING PATCHED WORKLOAD ({num_workload_requests} requests, concurrency {workload_concurrency}) ===")
-    t0_p = scrape_metrics()
-    dur_post = execute_workload(
-        url=target_url,
-        payload=entrypoint_payload,
-        num_requests=num_workload_requests,
-        concurrency=workload_concurrency,
-    )
-    dur_post = max(dur_post, 1.0)
-    time.sleep(2)
-    t1_p = scrape_metrics()
+        # Step 9: Deterministic Verification
+        print(f"\n=== STEP 9: DETERMINISTIC ASSERTION EVALUATION (ATTEMPT {attempt}) ===")
+        attempt_csv = os.path.join(output_dir, f"metrics_post_attempt_{attempt}.csv")
+        df_post = collect_via_direct_scrape(dur_post, retries_post, reqs_post)
+        df_post.to_csv(attempt_csv, index=False)
+        df_post.to_csv(patched_csv, index=False)
 
-    retries_post = max(t1_p["retries"] - t0_p["retries"], 0.0)
-    if retries_post == 0:
-        retries_post = float(num_workload_requests) * 1.0  # 1 retry for RETRIES_MAX=2
+        ver_res = verify(base_csv, attempt_csv, spec["assertions"])
 
-    reqs_post = float(num_workload_requests)
-    r_per_req_post = retries_post / reqs_post
-    rate_post = (retries_post / dur_post) * 60.0
-    tp_post = reqs_post / dur_post
+        # Invalid-run duration sanity check
+        expected_min_duration = (num_workload_requests / max(workload_concurrency, 1)) * (calibrated_latency / 1000.0) * 0.25
+        if dur_base < expected_min_duration and ver_res.status == "PASS":
+            print(f"\n[CRITICAL SANITY CHECK] Measured duration ({dur_base:.2f}s) is implausibly fast for {num_workload_requests} requests under {calibrated_latency}ms fault. Flagging run as INCONCLUSIVE.")
+            ver_res.status = "INCONCLUSIVE"
+            ver_res.reason = f"Workload duration ({dur_base:.2f}s) is implausibly fast for {num_workload_requests} requests under {calibrated_latency}ms fault. Suspected bypassed proxy or environment anomaly."
 
-    patched_summary = {
-        "phase": "patched",
-        "duration_s": round(dur_post, 2),
-        "total_requests": reqs_post,
-        "retries_counted": retries_post,
-        "retries_per_request": round(r_per_req_post, 3),
-        "rate_per_min": round(rate_post, 2),
-        "throughput_req_per_sec": round(tp_post, 2),
-    }
-    print(f"PATCHED Results: {r_per_req_post} retries/req | {rate_post:.2f}/min | {tp_post:.2f} req/s (Duration: {dur_post:.2f}s)")
+        print(f"ATTEMPT {attempt} VERIFICATION VERDICT: [{ver_res.status}] (Reason: {ver_res.reason})")
 
-    # Export patched telemetry via collect_via_direct_scrape
-    patched_csv = os.path.join(output_dir, "metrics_patched.csv")
-    df_post = collect_via_direct_scrape(dur_post, retries_post, reqs_post)
-    df_post.to_csv(patched_csv, index=False)
+        attempt_record = {
+            "attempt": attempt,
+            "proposal": patch_proposal,
+            "patch_diff": patch_diff_str,
+            "reasoning": patch_reasoning,
+            "source": patch_source,
+            "patched_summary": patched_summary,
+            "verdict": ver_res.status,
+            "reason": ver_res.reason,
+            "diff_table": [r if isinstance(r, dict) else r.to_dict() for r in ver_res.diff_table],
+        }
+        patch_attempts.append(attempt_record)
 
-    # Step 9: Deterministic Verification
-    print("\n=== STEP 9: DETERMINISTIC ASSERTION EVALUATION ===")
+        final_ver_res = ver_res
+        final_patched_summary = patched_summary
+        final_patch_diff_str = patch_diff_str
+        final_patch_reasoning = patch_reasoning
+        final_patch_source = patch_source
+
+        if ver_res.status == "PASS" or ver_res.status == "INCONCLUSIVE":
+            break
+
+    ver_res = final_ver_res
+    patched_summary = final_patched_summary
+    patch_diff_str = final_patch_diff_str
+    patch_reasoning = final_patch_reasoning
+    patch_source = final_patch_source
+
     manifest_data = {
         "experiment_id": unique_exp_id,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "base": base_summary,
         "patched": patched_summary,
+        "patch_attempts": patch_attempts,
     }
     manifest_path = os.path.join(output_dir, "manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_data, f, indent=2)
 
-    ver_res = verify(base_csv, patched_csv, spec["assertions"])
-    
-    # Invalid-run duration sanity check
-    expected_min_duration = (num_workload_requests / max(workload_concurrency, 1)) * (calibrated_latency / 1000.0) * 0.25
-    if dur_base < expected_min_duration and ver_res.status == "PASS":
-        print(f"\n[CRITICAL SANITY CHECK] Measured duration ({dur_base:.2f}s) is implausibly fast for {num_workload_requests} requests under {calibrated_latency}ms fault (expected minimum >= {expected_min_duration:.2f}s). Flagging run as INCONCLUSIVE.")
-        ver_res.status = "INCONCLUSIVE"
-        ver_res.reason = f"Workload duration ({dur_base:.2f}s) is implausibly fast for {num_workload_requests} requests under {calibrated_latency}ms fault (expected minimum >= {expected_min_duration:.2f}s). Suspected bypassed proxy or environment anomaly."
-
-    print(f"VERIFICATION VERDICT: [{ver_res.status}]")
+    print(f"\nFINAL VERIFICATION VERDICT: [{ver_res.status}]")
 
     # Step 10: Multi-Hypothesis Telemetry Evaluation
     evaluated_hypotheses = evaluate_hypotheses_evidence(
@@ -609,6 +768,7 @@ def run_synthetic_ci(
         "pre_summary": base_summary,
         "post_summary": patched_summary,
         "patch_diff": patch_diff_str,
+        "patch_attempts": patch_attempts,
         "patch_reasoning": patch_reasoning,
         "patch_source": patch_source,
         "capsule_path": f"capsules/{unique_exp_id}.zip",
