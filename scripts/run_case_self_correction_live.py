@@ -148,7 +148,7 @@ def run_self_correction_demo() -> None:
     # 6. Multi-attempt remediation loop
     spec_assertions = {
         "pre_patch": [
-            {"metric": "retries_per_request", "condition": ">= 2.0"},
+            {"metric": "retries_per_request", "condition": "> 2.0"},
             {"metric": "total_requests", "condition": ">= 100"},
         ],
         "post_patch": [
