@@ -120,4 +120,5 @@ To test whether backoff removal alone (`RETRY_BACKOFF_FACTOR: 0.5 -> 0.0`) is su
 
 ### 4. Reproduction Capsule
 - **Capsule**: [`capsules/case-ablation-backoff-01.zip`](file:///c:/Users/saksh/Downloads/proofchange/capsules/case-ablation-backoff-01.zip)
-- **Replay Verification**: `python changeproof/replay.py capsules/case-ablation-backoff-01.zip` $\rightarrow$ `[INCONCLUSIVE]`
+- **Replay Verification**: `python -m changeproof.replay capsules/case-ablation-backoff-01.zip` $\rightarrow$ `[INCONCLUSIVE]`
+
