@@ -74,41 +74,50 @@ From the canonical live run (`33227355365` / `runs/ci_run/`):
 
 ---
 
+---
+
 ## 5. Isolated Factorial Evidence: Single-Factor Backoff Ablation (`case-ablation-backoff-01`)
 
-To empirically validate the isolated sufficiency of the backoff mechanism independently of elevated retry ceilings and timeout reductions, ChangeProof executed an isolated ablation experiment:
+To test whether backoff removal alone (`RETRY_BACKOFF_FACTOR: 0.5 -> 0.0`) is sufficient to create a retry amplification storm (>2.0 retries/req) and whether isolated backoff restoration (0.0 -> 0.5) is sufficient to remediate it, ChangeProof executed an unconfounded single-factor ablation experiment.
 
-### The Ablation Diff
-```diff
---- a/app/checkout/main.py
-+++ b/app/checkout/main.py
-@@ -12,3 +12,3 @@
- RETRIES_MAX = 3
- RETRY_TIMEOUT_SECONDS = 1.0
--RETRY_BACKOFF_FACTOR = 0.5
-+RETRY_BACKOFF_FACTOR = 0.0
-```
+### The True Single-Factor Diff & Isolated Reversion
+- **Evaluated Diff**:
+  ```diff
+  --- a/app/checkout/main.py
+  +++ b/app/checkout/main.py
+  @@ -12,3 +12,3 @@
+   RETRIES_MAX = 3
+   RETRY_TIMEOUT_SECONDS = 1.0
+  -RETRY_BACKOFF_FACTOR = 0.5
+  +RETRY_BACKOFF_FACTOR = 0.0
+  ```
+- **Isolated Reversion (Remediation)**: Reverts *only* `RETRY_BACKOFF_FACTOR` to `0.5`, leaving `RETRIES_MAX = 3` and `RETRY_TIMEOUT_SECONDS = 1.0` strictly unchanged.
 
-### 1. Isolated Signal Detection
+### 1. Risk Assessment & Signal Isolation
 - **Risk Score**: `20/100` (Level: `MEDIUM`)
-- **Signals Detected**: Exactly 1 signal: `["Removal of backoff / immediate retry execution"]` (confirming no confounding signals).
+- **Signals Detected**: Exactly 1 signal: `["Removal of backoff / immediate retry execution"]`.
 
-### 2. Live Runtime Experiment & Telemetry Evidence
-- **Calibrated Injected Latency**: $2000\text{ms}$ on `payment-proxy` (derived dynamically via $\max(2 \times 1000\text{ms}, 1500\text{ms})$ against the $1.0\text{s}$ client timeout).
-- **Pre-Patch State (`BACKOFF = 0.0`, `RETRIES_MAX = 3`)**:
-  - **Retries / Request**: **`2.000`** (1 initial attempt + 2 unspaced retries per failed call across 150 requests).
-  - **Retry Rate**: **`435.31 retries/min`** (unspaced immediate firing under 10 VUs).
-  - **Throughput**: `3.63 req/s` (Duration: `41.35s`).
-- **Post-Patch Remediated State (`BACKOFF = 0.5`, `RETRIES_MAX = 2`)**:
-  - **Retries / Request**: **`1.000`** (bounded to $\le 1.1$).
-  - **Retry Rate**: **`349.51 retries/min`**.
-  - **Throughput**: `5.83 req/s` (Duration: `25.75s`).
+### 2. Live Runtime Telemetry (Under Standard Frozen Assertions)
+- **Calibrated Injected Latency**: $2000\text{ms}$ on `payment-proxy` ($\max(2T, 1500\text{ms})$ against $1.0\text{s}$ timeout).
+- **Pre-Patch State (`BACKOFF = 0.0`, `RETRIES_MAX = 3`, `TIMEOUT = 1.0`)**:
+  - **Retries / Request**: **`2.000`** ($1\text{ attempt} + 2\text{ retries} = 2\text{ retries/req}$).
+  - **Retry Rate**: **`435.31 retries/min`** (unspaced immediate firing).
+  - **Assertion Check**: Condition `> 2.0` is **NOT MET** ($2.0 \ngtr 2.0$).
+- **Post-Patch Reverted State (`BACKOFF = 0.5`, `RETRIES_MAX = 3`, `TIMEOUT = 1.0`)**:
+  - **Retries / Request**: **`2.000`** (requests still timeout and execute 2 retries, spaced by backoff).
+  - **Retry Rate**: **`387.10 retries/min`**.
+  - **Assertion Check**: Condition `<= 1.1` is **NOT MET** ($2.0 \nleq 1.1$).
+- **Deterministic Verifier Verdict**: **`INCONCLUSIVE`** (Pre-patch amplification threshold $> 2.0$ not reached; safety not proven).
 
-### 3. Epistemic Labeling in Single-Signal Context
-Because only one signal was present in the diff ($N=1$), `hypothesis_evaluator` accurately classified the mechanism as:
-$$\mathbf{H\text{-}NO\text{-}BACKOFF}: \mathbf{[SUPPORTED\ (ISOLATED)]}$$
-The multi-signal joint attribution warning was **automatically omitted** from the Proof Certificate, reflecting genuine, isolated single-factor empirical confirmation.
+### 3. Key Scientific Findings & Epistemic Implications
+1. **Separation of Volume vs. Pacing**:
+   - **Backoff controls temporal pacing**: Removing backoff spikes the instantaneous retry rate (435.31/min in bursts).
+   - **Retry ceiling controls total volume**: Removing backoff *alone* does not increase total retries per request beyond $\text{RETRIES\_MAX} - 1 = 2.0$.
+2. **Confounding Confirmation in CASE-01**:
+   - In `CASE-01`, the massive 7.0 retries/req storm was driven by `RETRIES_MAX = 8` in combination with premature timeouts (`TIMEOUT = 0.5s`). Backoff removal aggravated the storm's burstiness, but was not independently sufficient to cause a $> 2.0$ amplification on its own when `RETRIES_MAX = 3`.
+3. **Epistemic Integrity**:
+   - Rather than shifting assertion thresholds or applying an unfaithful multi-parameter fix, ChangeProof faithfully evaluated the standard frozen assertions and returned `INCONCLUSIVE`, proving the verifier's complete refusal to fabricate safety certificates.
 
 ### 4. Reproduction Capsule
 - **Capsule**: [`capsules/case-ablation-backoff-01.zip`](file:///c:/Users/saksh/Downloads/proofchange/capsules/case-ablation-backoff-01.zip)
-- **Replay Command**: `python changeproof/replay.py capsules/case-ablation-backoff-01.zip` (Replay Status: `PASS`)
+- **Replay Verification**: `python changeproof/replay.py capsules/case-ablation-backoff-01.zip` $\rightarrow$ `[INCONCLUSIVE]`
