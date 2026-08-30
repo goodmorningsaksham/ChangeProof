@@ -13,7 +13,7 @@ app = FastAPI(title="Checkout Service", version="1.0.0")
 
 # Configuration (Defaults for baseline behavior)
 PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL", "http://toxiproxy:18002")
-RETRIES_MAX = int(os.getenv("RETRIES_MAX", "3"))  # Baseline: safe retry count
+RETRIES_MAX = int(os.getenv("RETRIES_MAX", "2"))  # Baseline: safe retry count
 RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "1.0"))
 RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.5"))  # Baseline: exponential backoff
 
@@ -181,3 +181,4 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8001"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+

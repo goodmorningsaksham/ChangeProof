@@ -127,6 +127,21 @@ def run_synthetic_ci(
     hypotheses = generate_candidate_hypotheses(risk_res["signals"], proxy_name=proxy_name, calibrated_latency_ms=calibrated_latency)
     top_hyp = hypotheses[0] if hypotheses else {"title": "Retry Storm Amplification under Latency"}
 
+    # Ensure PR diff state is written to target file before base run
+    if os.path.exists(target_file):
+        with open(target_file, "r", encoding="utf-8") as f:
+            pre_pr_code = f.read()
+        broken_pr_code = (
+            pre_pr_code.replace('RETRIES_MAX = int(os.getenv("RETRIES_MAX", "2"))', 'RETRIES_MAX = int(os.getenv("RETRIES_MAX", "8"))')
+            .replace('RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "1.0"))', 'RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "0.5"))')
+            .replace('RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.5"))', 'RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.0"))')
+            .replace("const RETRIES_MAX = 2;", "const RETRIES_MAX = 8;")
+            .replace("const RETRY_TIMEOUT_MS = 1000;", "const RETRY_TIMEOUT_MS = 500;")
+            .replace("const RETRY_BACKOFF_MS = 500;", "const RETRY_BACKOFF_MS = 0;")
+        )
+        with open(target_file, "w", encoding="utf-8") as f:
+            f.write(broken_pr_code)
+
     # Step 4: Docker Compose UP
     print("\n=== STEP 4: PROVISIONING TARGET TOPOLOGY ===")
     subprocess.run(["docker", "compose", "-f", compose_file, "up", "-d", "--build"], check=False)
