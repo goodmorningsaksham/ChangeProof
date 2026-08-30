@@ -1,6 +1,6 @@
-# ChangeProof — Comprehensive Evaluation Report
+﻿# ChangeProof â€” Comprehensive Evaluation Report
 
-## Benchmark Summary (11 Executed Cases)
+## Benchmark Summary (13 Executed Cases: 12 PASS, 1 INCONCLUSIVE)
 
 | Metric | ChangeProof Advanced | Conventional Baseline | Delta / Benefit |
 |---|---|---|---|

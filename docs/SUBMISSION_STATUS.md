@@ -181,3 +181,4 @@ To verify that verification results are not single-run flukes or stochastic anom
 - **Continuous Metric Jitter vs. Discrete Verdict Stability**:
   While timing metrics (`duration_s`, throughput, rate) exhibit small continuous operating system network scheduling variations ($\approx \pm 0.05\text{s}$), the core metric of reliability verification (`retries_per_request`) is mathematically deterministic and immune to stochastic CI flakes.
 
+
