@@ -817,26 +817,28 @@ def run_synthetic_ci(
             calibrated_latency_ms=calibrated_latency,
         )
 
-        cert_md = generator.generate_certificate(
-            experiment_id=unique_exp_id,
-            risk_score=risk_res["score"],
-            risk_level=risk_res["level"],
-            signals=risk_res["signals"],
-            hypotheses=evaluated_hypos,
-            pre_summary=base_summary,
-            post_summary=final_patched_summary,
-            verification_status=final_ver_res.status,
-            verification_reason=final_ver_res.reason,
-            diff_table=final_ver_res.diff_table,
-            patch_diff=final_patch_diff_str,
-            patch_reasoning=final_patch_reasoning,
-            patch_source=final_patch_source,
-            patch_attempts=patch_attempts if len(patch_attempts) > 1 else None,
-        )
+        cert_context = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "experiment_id": unique_exp_id,
+            "git_commit": git_commit,
+            "verification_status": final_ver_res.status,
+            "verification_reason": final_ver_res.reason,
+            "risk_level": risk_res["level"],
+            "risk_score": risk_res["score"],
+            "hypothesis_title": top_hyp.get("title", "Retry Storm Amplification under Latency"),
+            "hypothesis_confidence": "HIGH",
+            "candidate_hypotheses": evaluated_hypos,
+            "pre_summary": base_summary,
+            "post_summary": final_patched_summary,
+            "diff_table": [r if isinstance(r, dict) else r.to_dict() for r in final_ver_res.diff_table],
+            "patch_diff": final_patch_diff_str,
+            "patch_reasoning": final_patch_reasoning,
+            "patch_source": final_patch_source,
+            "patch_attempts": patch_attempts if len(patch_attempts) > 1 else None,
+        }
 
         cert_path = os.path.join(output_dir, "proof_certificate.md")
-        with open(cert_path, "w", encoding="utf-8") as f:
-            f.write(cert_md)
+        generator.generate_and_save(cert_context, cert_path)
         vlog.log("CERTIFICATE", f"Proof Certificate saved to {cert_path}")
 
         # Save run manifest
