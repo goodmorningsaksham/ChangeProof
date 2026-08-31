@@ -30,6 +30,10 @@ class CapsulePackager:
         capsule_filename = f"{experiment_id}.zip"
         capsule_path = os.path.join(self.capsules_dir, capsule_filename)
 
+        abs_capsule_path = os.path.abspath(capsule_path)
+        abs_capsules_dir = os.path.abspath(self.capsules_dir)
+        abs_run_dir = os.path.abspath(run_dir)
+
         spec_file = os.path.join(run_dir, "experiment.yaml")
         spec_sha256 = self.sha256_file(spec_file) if os.path.exists(spec_file) else "none"
         patch_sha256 = self.sha256_file(patch_diff_path) if patch_diff_path and os.path.exists(patch_diff_path) else "none"
@@ -43,14 +47,15 @@ class CapsulePackager:
             except Exception:
                 pass
 
-        # Compute evidence hashes for all metrics and data files in run_dir
+        # Compute evidence hashes for all valid metrics and data files in run_dir (skipping zip files/capsules dirs)
         evidence_hashes: Dict[str, str] = {}
         if os.path.exists(run_dir):
             for fname in os.listdir(run_dir):
-                if fname.endswith(".csv") or fname.endswith(".json") or fname.endswith(".diff") or fname.endswith(".yaml"):
+                if fname.endswith((".csv", ".json", ".diff", ".yaml", ".yml", ".jsonl", ".log")):
                     if fname != "manifest.json":
                         fpath = os.path.join(run_dir, fname)
-                        evidence_hashes[fname] = self.sha256_file(fpath)
+                        if os.path.isfile(fpath):
+                            evidence_hashes[fname] = self.sha256_file(fpath)
 
         manifest = {
             "version": "1.0",
@@ -72,12 +77,24 @@ class CapsulePackager:
             z.writestr("manifest.json", json.dumps(manifest, indent=2))
             
             # Archive run directory contents (spec, metrics, trajectory)
+            # CRITICAL: strictly exclude capsules directory, .zip files, .git, .venv to prevent recursive zip inflation
             if os.path.exists(run_dir):
-                for root, _, files in os.walk(run_dir):
+                for root, dirs, files in os.walk(run_dir):
+                    # Prune excluded directories
+                    dirs[:] = [
+                        d for d in dirs
+                        if d not in ("capsules", ".git", ".venv", "node_modules", "__pycache__", "scratch")
+                        and os.path.abspath(os.path.join(root, d)) != abs_capsules_dir
+                    ]
+                    
                     for file in files:
                         if file in ("manifest.json", "patch.diff"):
                             continue
+                        if file.endswith((".zip", ".tar", ".gz", ".pyc", ".vhdx")):
+                            continue
                         full_path = os.path.join(root, file)
+                        if os.path.abspath(full_path) == abs_capsule_path:
+                            continue
                         rel_path = os.path.relpath(full_path, run_dir)
                         z.write(full_path, arcname=rel_path)
 
@@ -88,7 +105,7 @@ class CapsulePackager:
             # Archive additional files (e.g., compose, workload)
             if additional_files:
                 for af in additional_files:
-                    if os.path.exists(af):
+                    if os.path.exists(af) and not af.endswith((".zip", ".tar", ".gz")):
                         z.write(af, arcname=os.path.basename(af))
 
             # Include README with clean replay commands
