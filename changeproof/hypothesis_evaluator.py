@@ -152,6 +152,10 @@ def _enrich_hypothesis_via_llm(
         return res
 
     data = parse_json_response(response)
+    if not data or not isinstance(data, dict):
+        res = dict(template)
+        res["source"] = "static"
+        return res
 
     # Validate required fields -- fall back to template for any missing/invalid field
     result: Dict[str, Any] = {}
@@ -423,3 +427,4 @@ def evaluate_hypotheses_evidence(
         evaluated.append(h_copy)
 
     return evaluated
+
