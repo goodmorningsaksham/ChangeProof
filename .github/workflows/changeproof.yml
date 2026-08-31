@@ -59,7 +59,7 @@ jobs:
         if: always()
         with:
           name: changeproof-reproduction-capsule
-          path: capsules/*.zip
+          path: runs/ci_run/capsules/*.zip
           if-no-files-found: ignore
           retention-days: 14
 
@@ -83,7 +83,17 @@ jobs:
                   }
                 } catch (e) {}
               }
-              const footer = `\n\n---\n### 📦 Artifact Reference\n- **Capsule Artifact**: Download \`changeproof-reproduction-capsule\` from the Workflow Run Summary.\n- **Replay Verification**:\n  \`\`\`bash\n  python changeproof/replay.py capsules/${capsuleName}\n  \`\`\``;
+              const footer = `
+
+---
+### 📦 Artifact Reference
+- **Capsule Artifact**: Download \`changeproof-reproduction-capsule\` from the Workflow Run Summary (contains \`${capsuleName}\`).
+- **Replay Verification**:
+  \`\`\`bash
+  # Replay downloaded CI capsule archive:
+  python -m changeproof.replay ${capsuleName}
+  # (or from workspace runs directory: python -m changeproof.replay runs/ci_run/capsules/${capsuleName})
+  \`\`\``;
               const body = certContent + footer;
               const issueNumber = context.issue.number || 1;
               await github.rest.issues.createComment({

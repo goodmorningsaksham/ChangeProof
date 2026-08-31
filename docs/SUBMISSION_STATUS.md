@@ -28,7 +28,7 @@ against the repo, the 11 reproduction capsules, and the GitHub Actions run log.
 
 ## Designated Challenging Case: Confounded Multi-Signal Evaluation
 
-> ðŸ“Œ **Full Analysis Document**: [`docs/CHALLENGING_CASE.md`](file:///c:/Users/saksh/Downloads/proofchange/docs/CHALLENGING_CASE.md)  
+> ðŸ“Œ **Full Analysis Document**: [`docs/CHALLENGING_CASE.md`](docs/CHALLENGING_CASE.md)  
 > `CASE-01` features three confounded signals simultaneously (`RETRIES_MAX: 3->8`, `BACKOFF: 0.5->0.0`, `TIMEOUT: 1.0->0.5`). ChangeProof avoids the false independent attribution fallacy, reporting honest joint attribution (`[CONSISTENT WITH OBSERVED STORM]`) with explicit disclaimer on the proof certificate.
 
 ---
@@ -70,9 +70,10 @@ The human engineering decision gate is fully operational via `changeproof/cli.py
 - `RiskAssessor` & `ContextBuilder` actively consult `policy_store.json`: a new PR diff setting `RETRIES_MAX = 6` surfaces:  
   `"Stored Human Policy Violation (POL-1788006970): retries (6) exceed human limit (4)"` (Score: 65, Level: `HIGH`).
 
-### Agent Reasoning Trajectories
-- `CASE-01`: Interactive tool-calling trajectory logged at `runs/ci_run/agent_trajectory.jsonl`.
-- `CASE-10`: Interactive tool-calling trajectory logged at `runs/case-10_agent_run/agent_trajectory.jsonl`.
+### Agent Reasoning Trajectories (Deliverable 04)
+- **Primary Tool-Call Trace (`CASE-10`)**: 10-step interactive tool-calling trajectory at `runs/case-10_agent_run/agent_trajectory.jsonl`.
+- **Iterative Self-Correction Trace (`case-self-correction-01`)**: Sealed multi-attempt remediation trajectory at `capsules/case-self-correction-01.zip`.
+- **Full Trajectory Documentation**: Indexed and explained in `docs/AGENT_TRAJECTORIES.md`.
 
 ---
 

@@ -1,7 +1,7 @@
 ﻿# ChangeProof â€” Designated Challenging Case: Confounded Multi-Signal Evaluation
 
 **Case Identifier**: `CASE-01` (Canonical Multi-Signal Storm)  
-**Artifacts**: [`runs/ci_run/proof_certificate.md`](file:///c:/Users/saksh/Downloads/proofchange/runs/ci_run/proof_certificate.md), [`capsules/case-01.zip`](file:///c:/Users/saksh/Downloads/proofchange/capsules/case-01.zip)  
+**Artifacts**: [`runs/ci_run/proof_certificate.md`](runs/ci_run/proof_certificate.md), [`capsules/case-01.zip`](capsules/case-01.zip)  
 **Status**: `PROVEN & VERIFIED SAFE` (Deterministic Verdict: `PASS`, VSCR: `100.0%`)
 
 ---
@@ -119,6 +119,6 @@ To test whether backoff removal alone (`RETRY_BACKOFF_FACTOR: 0.5 -> 0.0`) is su
    - Rather than shifting assertion thresholds or applying an unfaithful multi-parameter fix, ChangeProof faithfully evaluated the standard frozen assertions and returned `INCONCLUSIVE`, proving the verifier's complete refusal to fabricate safety certificates.
 
 ### 4. Reproduction Capsule
-- **Capsule**: [`capsules/case-ablation-backoff-01.zip`](file:///c:/Users/saksh/Downloads/proofchange/capsules/case-ablation-backoff-01.zip)
+- **Capsule**: [`capsules/case-ablation-backoff-01.zip`](capsules/case-ablation-backoff-01.zip)
 - **Replay Verification**: `python -m changeproof.replay capsules/case-ablation-backoff-01.zip` $\rightarrow$ `[INCONCLUSIVE]`
 
