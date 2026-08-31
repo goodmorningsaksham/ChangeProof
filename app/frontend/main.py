@@ -1,4 +1,4 @@
-﻿"""Frontend Gateway Service â€” Ingress API forwarding customer orders to Checkout."""
+﻿"""Frontend Gateway Service — Ingress API forwarding customer orders to Checkout."""
 import os
 import time
 import uuid
@@ -59,8 +59,8 @@ def submit_order(order: OrderRequest):
     
     checkout_payload = {
         "order_id": order_id,
-        "amount": order.amount,
-        "customer_id": order.user_id,`n        "user_id": order.user_id,
+        "amount": order.amount if order.amount is not None else 99.99,
+        "customer_id": order.user_id or "user_default",
         "force_payment_failure": order.force_payment_failure,
     }
     
@@ -110,5 +110,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-

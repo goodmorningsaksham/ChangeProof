@@ -70,7 +70,7 @@ def call_llm(prompt: str, max_tokens: int = 2048) -> Optional[str]:
                 for attempt in range(2):  # 1 initial + 1 retry on 429
                     try:
                         model = genai.GenerativeModel(model_name)
-                        resp = model.generate_content(
+                        resp = model.generate_content(`n                            request_options={"timeout": 15.0},
                             prompt,
                             generation_config={"temperature": 0.0, "max_output_tokens": max_tokens},
                         )
@@ -140,3 +140,4 @@ def parse_json_response(response_text: str) -> dict:
         return json.loads(clean.strip())
     except Exception:
         return {}
+
