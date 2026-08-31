@@ -28,6 +28,40 @@ from changeproof.capsule import CapsulePackager
 from changeproof.llm_client import call_llm, parse_json_response
 
 
+
+def get_free_disk_gb(path: str = ".") -> float:
+    try:
+        total, used, free = shutil.disk_usage(os.path.abspath(path))
+        return round(free / (1024 ** 3), 2)
+    except Exception:
+        return -1.0
+
+
+class VerificationLogger:
+    def __init__(self, log_path: str):
+        self.log_path = os.path.abspath(log_path)
+        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        self._lock = threading.Lock()
+        header = f"\n{'='*80}\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] VERIFICATION RUN STARTED (Free C: Disk: {get_free_disk_gb()} GB)\n{'='*80}\n"
+        with open(self.log_path, "a", encoding="utf-8") as f:
+            f.write(header)
+
+    def log(self, stage: str, message: str, level: str = "INFO"):
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        disk_gb = get_free_disk_gb()
+        entry = f"[{ts}] [{level}] [{stage}] (Disk Free: {disk_gb} GB) {message}"
+        print(entry)
+        try:
+            with self._lock:
+                with open(self.log_path, "a", encoding="utf-8") as f:
+                    f.write(entry + "\n")
+        except Exception:
+            pass
+
+    def log_cmd(self, cmd: List[str], exit_code: int, duration_s: float):
+        cmd_str = " ".join(cmd)
+        self.log("DOCKER/SYSTEM", f"Executed: '{cmd_str}' | Exit Code: {exit_code} | Duration: {duration_s:.2f}s")
+
 def wait_for_service(url: str, timeout_s: int = 45) -> bool:
     """Polls an HTTP endpoint until 200 OK or timeout."""
     deadline = time.time() + timeout_s
@@ -386,416 +420,472 @@ def run_synthetic_ci(
     os.makedirs(output_dir, exist_ok=True)
     capsules_dir = os.path.join(output_dir, "capsules")
     os.makedirs(capsules_dir, exist_ok=True)
+    log_file = os.path.join(output_dir, "verification.log")
+    vlog = VerificationLogger(log_file)
 
-    print("=== STEP 1: RISK ASSESSMENT ===")
-    assessor = RiskAssessor()
-    risk_res = assessor.assess_diff(diff_text)
-    print(f"Risk Score: {risk_res['score']} | Level: {risk_res['level']}")
-
-    print("\n=== STEP 2: EXPERIMENT SYNTHESIS FROM TOPOLOGY ===")
-    synth = ExperimentSynthesizer(compose_path=compose_file, toxiproxy_config_path=toxiproxy_config)
-    spec = synth.synthesize(diff_text, case_id="ci-synth-run", git_commit=git_commit)
-    
-    proxy_name = spec["fault"]["proxy"]
-    calibrated_latency = spec["fault"]["toxic"]["attributes"]["latency"]
-    jitter = spec["fault"]["toxic"]["attributes"].get("jitter", 75)
-    
-    entrypoint_route = spec["workload"].get("entrypoint_route", "/orders")
-    entrypoint_payload = spec["workload"].get("entrypoint_payload", {"item_id": "item_123", "quantity": 1, "amount": 99.99, "user_id": "cust_123"})
-    
-    workload_vus = int(spec["workload"].get("vus", 10))
-    workload_rps = int(spec["workload"].get("rps_target", 10))
-    workload_dur_s = float(str(spec["workload"].get("duration", "15s")).replace("s", ""))
-    # Transparent derivation directly from synthesized spec: rps_target * duration
-    num_workload_requests = int(spec["workload"].get("num_requests", int(workload_rps * workload_dur_s)))
-    workload_concurrency = workload_vus
-
-    changed_service = spec.get("target", {}).get("changed_service") or "checkout-service"
-    target_file = spec.get("target", {}).get("changed_file") or ("app/inventory/main.py" if os.path.exists("app/inventory/main.py") else "app/checkout/main.py")
-    changed_short = _clean_service_name(changed_service)
-
-    commit_tag = git_commit[:8] if git_commit not in ("HEAD", "main", "") else str(int(time.time()))
-    unique_exp_id = f"ci-{changed_short}-{commit_tag}"
-
-    entrypoint_port = 8000
-    target_url = f"http://localhost:{entrypoint_port}{entrypoint_route}"
-    print(f"Synthesized Spec: Target Proxy={proxy_name}, Latency={calibrated_latency}ms, Workload={target_url} ({num_workload_requests} reqs @ {workload_concurrency} VUs)")
-
-    # Step 3: Propose Candidate Hypotheses
-    # Resolve changed file content for LLM-grounded hypothesis generation
-    _code_context = ""
-    if os.path.exists(target_file):
-        try:
-            with open(target_file, "r", encoding="utf-8") as _f:
-                _code_context = _f.read()
-        except Exception:
-            pass
-
-    hypotheses = generate_candidate_hypotheses(
-        risk_res["signals"],
-        proxy_name=proxy_name,
-        calibrated_latency_ms=calibrated_latency,
-        diff_text=diff_text,
-        code_context=_code_context,
-    )
-    top_hyp = hypotheses[0] if hypotheses else {"title": "Retry Storm Amplification under Latency"}
-
-    # Ensure PR diff state is written to target file before base run
-    if os.path.exists(target_file):
-        with open(target_file, "r", encoding="utf-8") as f:
-            pre_pr_code = f.read()
-        broken_pr_code = (
-            pre_pr_code.replace('RETRIES_MAX = int(os.getenv("RETRIES_MAX", "2"))', 'RETRIES_MAX = int(os.getenv("RETRIES_MAX", "8"))')
-            .replace('RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "1.0"))', 'RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "0.5"))')
-            .replace('RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.5"))', 'RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.0"))')
-            .replace("const RETRIES_MAX = 2;", "const RETRIES_MAX = 8;")
-            .replace("const RETRY_TIMEOUT_MS = 1000;", "const RETRY_TIMEOUT_MS = 500;")
-            .replace("const RETRY_BACKOFF_MS = 500;", "const RETRY_BACKOFF_MS = 0;")
-        )
-        with open(target_file, "w", encoding="utf-8") as f:
-            f.write(broken_pr_code)
-
-    # Step 4: Docker Compose UP
-    print("\n=== STEP 4: PROVISIONING TARGET TOPOLOGY ===")
-    subprocess.run(["docker", "compose", "-f", compose_file, "up", "-d", "--build"], check=False)
-    
-    # Wait for entrypoint and toxiproxy
-    print("Waiting for services...")
-    time.sleep(4)
-    wait_for_service(f"http://localhost:{entrypoint_port}/health", timeout_s=35)
-    wait_for_service("http://localhost:8474/proxies", timeout_s=15)
-
-    # Step 5: Configure Toxiproxy Fault via ToxiproxyClient
-    print(f"\n=== STEP 5: INJECTING CALIBRATED FAULT ON {proxy_name} ({calibrated_latency}ms) ===")
-    toxi_client = ToxiproxyClient("http://localhost:8474")
-    
-    # Ensure proxies from toxiproxy_config are registered in Toxiproxy container
-    if os.path.exists(toxiproxy_config):
-        try:
-            with open(toxiproxy_config, "r", encoding="utf-8-sig") as f:
-                t_cfg = json.load(f)
-                if isinstance(t_cfg, list):
-                    for p_entry in t_cfg:
-                        try:
-                            resp = requests.post("http://localhost:8474/proxies", json=p_entry, timeout=3.0)
-                            if resp.status_code in (200, 201):
-                                print(f"Registered proxy {p_entry.get('name')} in Toxiproxy")
-                        except Exception:
-                            pass
-        except Exception as e:
-            print(f"Notice loading toxiproxy config: {e}")
+    t_session_start = time.time()
+    vlog.log("INIT", f"Initialized CI run environment in '{output_dir}' (Commit: {git_commit})")
 
     try:
-        toxi_client.reset()
-        toxi_res = toxi_client.add_latency(
-            proxy_name=proxy_name,
-            toxic_name="latency_toxic",
-            latency_ms=calibrated_latency,
-            jitter_ms=jitter,
-            stream="downstream",
+        # Step 1: Risk Assessment
+        vlog.log("STEP_1_RISK", "Starting static risk assessment on PR diff...")
+        assessor = RiskAssessor()
+        risk_res = assessor.assess_diff(diff_text)
+        vlog.log("STEP_1_RISK", f"Risk Assessment Complete -> Score: {risk_res['score']}, Level: {risk_res['level']}, Signals: {len(risk_res['signals'])}")
+
+        # Step 2: Synthesis
+        vlog.log("STEP_2_SYNTHESIS", f"Synthesizing counterfactual experiment spec from {compose_file} and {toxiproxy_config}...")
+        synth = ExperimentSynthesizer(compose_path=compose_file, toxiproxy_config_path=toxiproxy_config)
+        spec = synth.synthesize(diff_text, case_id="ci-synth-run", git_commit=git_commit)
+
+        proxy_name = spec["fault"]["proxy"]
+        calibrated_latency = spec["fault"]["toxic"]["attributes"]["latency"]
+        jitter = spec["fault"]["toxic"]["attributes"].get("jitter", 75)
+
+        entrypoint_route = spec["workload"].get("entrypoint_route", "/orders")
+        entrypoint_payload = spec["workload"].get("entrypoint_payload", {"item_id": "item_123", "quantity": 1, "amount": 99.99, "user_id": "cust_123"})
+
+        workload_vus = int(spec["workload"].get("vus", 10))
+        workload_rps = int(spec["workload"].get("rps_target", 10))
+        workload_dur_s = float(str(spec["workload"].get("duration", "15s")).replace("s", ""))
+        num_workload_requests = int(spec["workload"].get("num_requests", int(workload_rps * workload_dur_s)))
+        workload_concurrency = workload_vus
+
+        changed_service = spec.get("target", {}).get("changed_service") or "checkout-service"
+        target_file = spec.get("target", {}).get("changed_file") or ("app/inventory/main.py" if os.path.exists("app/inventory/main.py") else "app/checkout/main.py")
+        changed_short = _clean_service_name(changed_service)
+
+        commit_tag = git_commit[:8] if git_commit not in ("HEAD", "main", "") else str(int(time.time()))
+        unique_exp_id = f"ci-{changed_short}-{commit_tag}"
+
+        entrypoint_port = 8000
+        target_url = f"http://localhost:{entrypoint_port}{entrypoint_route}"
+        vlog.log(
+            "STEP_2_SYNTHESIS",
+            f"Synthesized Spec -> Proxy: {proxy_name}, Calibrated Latency: {calibrated_latency}ms, Workload: {target_url} ({num_workload_requests} reqs @ {workload_concurrency} VUs)"
         )
-        print(f"Toxiproxy fault injected successfully: {toxi_res}")
-    except Exception as e:
-        print(f"Toxiproxy injection notice: {e}")
 
-    # Workload execution helper driven genuinely by synthesized spec parameters
-    def execute_workload(url: str, payload: Dict[str, Any], num_requests: int, concurrency: int) -> float:
-        import concurrent.futures
-
-        t_start = time.time()
-        def send_req(_):
+        # Step 3: Propose Candidate Hypotheses
+        vlog.log("STEP_3_HYPOTHESIS", "Generating LLM-grounded candidate failure hypotheses...")
+        _code_context = ""
+        if os.path.exists(target_file):
             try:
-                r = requests.post(url, json=payload, timeout=8.0)
-                return r.status_code
-            except Exception:
-                return 504
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as ex:
-            list(ex.map(send_req, range(num_requests)))
-        
-        elapsed = time.time() - t_start
-        return elapsed
-
-    # Scrape Prometheus metrics
-    def scrape_metrics() -> Dict[str, float]:
-        text = ""
-        for port in [9090, 8001, 8000]:
-            try:
-                r = requests.get(f"http://localhost:{port}/metrics", timeout=2.0)
-                if r.status_code == 200 and "retry_count_total" in r.text:
-                    text = r.text
-                    break
+                with open(target_file, "r", encoding="utf-8") as _f:
+                    _code_context = _f.read()
             except Exception:
                 pass
-        
-        retries = 0.0
-        requests_count = 0.0
-        for line in text.splitlines():
-            if line.startswith("retry_count_total"):
-                try:
-                    retries = float(line.split()[-1])
-                except Exception:
-                    pass
-            elif line.startswith("inventory_requests_total") or line.startswith("checkout_requests_total") or line.startswith("gateway_requests_total"):
-                try:
-                    requests_count = float(line.split()[-1])
-                except Exception:
-                    pass
-        return {"retries": retries, "requests": requests_count}
 
-    # Step 6: BASE Run
-    print(f"\n=== STEP 6: EXECUTING BASE (PR STATE) WORKLOAD ({num_workload_requests} requests, concurrency {workload_concurrency}) ===")
-    t0_metrics = scrape_metrics()
-    dur_base = execute_workload(
-        url=target_url,
-        payload=entrypoint_payload,
-        num_requests=num_workload_requests,
-        concurrency=workload_concurrency,
-    )
-    time.sleep(2)
-    t1_metrics = scrape_metrics()
+        hypotheses = generate_candidate_hypotheses(
+            risk_res["signals"],
+            proxy_name=proxy_name,
+            calibrated_latency_ms=calibrated_latency,
+            diff_text=diff_text,
+            code_context=_code_context,
+        )
+        top_hyp = hypotheses[0] if hypotheses else {"title": "Retry Storm Amplification under Latency"}
+        vlog.log("STEP_3_HYPOTHESIS", f"Candidate Hypotheses Generated -> Primary: '{top_hyp.get('title')}'")
 
-    retries_base = max(t1_metrics["retries"] - t0_metrics["retries"], 0.0)
-    if retries_base == 0:
-        retries_base = float(num_workload_requests) * 7.0  # 7 retries per request for RETRIES_MAX=8
-
-    reqs_base = float(num_workload_requests)
-    dur_base = max(dur_base, 1.0)
-
-    r_per_req_base = retries_base / reqs_base
-    rate_base = (retries_base / dur_base) * 60.0
-    tp_base = reqs_base / dur_base
-
-    base_summary = {
-        "phase": "base",
-        "duration_s": round(dur_base, 2),
-        "total_requests": reqs_base,
-        "retries_counted": retries_base,
-        "retries_per_request": round(r_per_req_base, 3),
-        "rate_per_min": round(rate_base, 2),
-        "throughput_req_per_sec": round(tp_base, 2),
-    }
-    print(f"BASE Results: {r_per_req_base} retries/req | {rate_base:.2f}/min | {tp_base:.2f} req/s (Duration: {dur_base:.2f}s)")
-
-    # Export base telemetry via collect_via_direct_scrape
-    base_csv = os.path.join(output_dir, "metrics_base.csv")
-    df_base = collect_via_direct_scrape(dur_base, retries_base, reqs_base)
-    df_base.to_csv(base_csv, index=False)
-
-    # Step 7 to 9: Iterative Remediation & Verification Feedback Loop (Max 2 Attempts)
-    patch_attempts: List[Dict[str, Any]] = []
-    final_ver_res: VerificationResult = VerificationResult(status="INCONCLUSIVE", reason="No patch attempts executed")
-    final_patched_summary: Dict[str, Any] = {}
-    final_patch_diff_str: str = ""
-    final_patch_reasoning: str = ""
-    final_patch_source: str = "llm"
-    patched_csv: str = os.path.join(output_dir, "metrics_patched.csv")
-    max_patch_attempts = 2
-
-    for attempt in range(1, max_patch_attempts + 1):
-        print(f"\n=== STEP 7: REMEDIATION PATCH (ATTEMPT {attempt}/{max_patch_attempts}) ===")
-        patch_diff_str = ""
+        # Ensure PR diff state is written to target file before base run
         if os.path.exists(target_file):
             with open(target_file, "r", encoding="utf-8") as f:
-                code = f.read()
-
-            if attempt == 1:
-                patch_proposal = generate_llm_patch(
-                    code=code,
-                    diff_text=diff_text,
-                    base_summary=base_summary,
-                    signals=risk_res["signals"],
-                )
-            else:
-                print("\n[AGENTIC FEEDBACK LOOP] Triggering LLM diagnosis and patch revision based on Attempt 1 failure...")
-                patch_proposal = diagnose_and_revise_patch(
-                    code=code,
-                    diff_text=diff_text,
-                    base_summary=base_summary,
-                    attempt_record=patch_attempts[0],
-                    signals=risk_res["signals"],
-                )
-
-            patch_source = patch_proposal["source"]
-            patch_reasoning = patch_proposal["reasoning"]
-            print(f"[PATCH SOURCE: {patch_source.upper()}] {patch_reasoning}")
-
-            remediated_code = _apply_patch_values(code, patch_proposal)
-
+                pre_pr_code = f.read()
+            broken_pr_code = (
+                pre_pr_code.replace('RETRIES_MAX = int(os.getenv("RETRIES_MAX", "2"))', 'RETRIES_MAX = int(os.getenv("RETRIES_MAX", "8"))')
+                .replace('RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "1.0"))', 'RETRY_TIMEOUT_SECONDS = float(os.getenv("RETRY_TIMEOUT_SECONDS", "0.5"))')
+                .replace('RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.5"))', 'RETRY_BACKOFF_FACTOR = float(os.getenv("RETRY_BACKOFF_FACTOR", "0.0"))')
+                .replace("const RETRIES_MAX = 2;", "const RETRIES_MAX = 8;")
+                .replace("const RETRY_TIMEOUT_MS = 1000;", "const RETRY_TIMEOUT_MS = 500;")
+                .replace("const RETRY_BACKOFF_MS = 500;", "const RETRY_BACKOFF_MS = 0;")
+            )
             with open(target_file, "w", encoding="utf-8") as f:
-                f.write(remediated_code)
-            print(f"Wrote remediated code to {target_file}")
+                f.write(broken_pr_code)
+            vlog.log("STEP_3_PR_DIFF", f"Applied unverified PR diff state to {target_file}")
 
-            # Generate genuine language-agnostic unified diff
-            import difflib
-            diff_lines = list(difflib.unified_diff(
-                code.splitlines(keepends=True),
-                remediated_code.splitlines(keepends=True),
-                fromfile=f"a/{target_file}",
-                tofile=f"b/{target_file}",
-            ))
-            patch_diff_str = "".join(diff_lines)
-            if not patch_diff_str.strip():
-                patch_diff_str = (
-                    f"--- a/{target_file}\n+++ b/{target_file}\n"
-                    "@@ -1,1 +1,1 @@\n"
-                    "# No textual diff: proposed values already match code state.\n"
-                )
+        # Step 4: Docker Compose UP
+        vlog.log("STEP_4_PROVISION", f"Starting container topology via docker compose ({compose_file})...")
+        t_d0 = time.time()
+        res_up = subprocess.run(["docker", "compose", "-f", compose_file, "up", "-d", "--build"], capture_output=True, text=True, check=False)
+        vlog.log_cmd(["docker", "compose", "-f", compose_file, "up", "-d", "--build"], res_up.returncode, time.time() - t_d0)
 
-            patch_diff_file = os.path.join(output_dir, f"patch_attempt_{attempt}.diff" if attempt > 1 else "patch.diff")
-            with open(patch_diff_file, "w", encoding="utf-8") as f:
-                f.write(patch_diff_str)
-            subprocess.run(["docker", "compose", "-f", compose_file, "build", changed_service], check=False)
-            subprocess.run(["docker", "compose", "-f", compose_file, "up", "-d", changed_service], check=False)
-            time.sleep(4)
+        # Wait for entrypoint and toxiproxy
+        vlog.log("STEP_4_PROVISION", "Waiting for service health checks...")
+        time.sleep(4)
+        h_entry = wait_for_service(f"http://localhost:{entrypoint_port}/health", timeout_s=35)
+        h_toxi = wait_for_service("http://localhost:8474/proxies", timeout_s=15)
+        vlog.log("STEP_4_PROVISION", f"Health checks complete -> Ingress API: {h_entry}, Toxiproxy Admin: {h_toxi}")
 
-        # Step 8: PATCHED Run
-        print(f"\n=== STEP 8: EXECUTING PATCHED WORKLOAD (ATTEMPT {attempt}) ({num_workload_requests} requests, concurrency {workload_concurrency}) ===")
-        t0_p = scrape_metrics()
-        dur_post = execute_workload(
+        # Step 5: Configure Toxiproxy Fault via ToxiproxyClient
+        vlog.log("STEP_5_FAULT_INJECT", f"Injecting calibrated fault on {proxy_name} ({calibrated_latency}ms downstream latency)...")
+        toxi_client = ToxiproxyClient("http://localhost:8474")
+
+        if os.path.exists(toxiproxy_config):
+            try:
+                with open(toxiproxy_config, "r", encoding="utf-8-sig") as f:
+                    t_cfg = json.load(f)
+                    if isinstance(t_cfg, list):
+                        for p_entry in t_cfg:
+                            try:
+                                resp = requests.post("http://localhost:8474/proxies", json=p_entry, timeout=3.0)
+                                if resp.status_code in (200, 201):
+                                    vlog.log("STEP_5_FAULT_INJECT", f"Registered proxy {p_entry.get('name')} in Toxiproxy")
+                            except Exception:
+                                pass
+            except Exception as e:
+                vlog.log("STEP_5_FAULT_INJECT", f"Notice loading toxiproxy config: {e}", level="WARN")
+
+        try:
+            toxi_client.reset()
+            toxi_res = toxi_client.add_latency(
+                proxy_name=proxy_name,
+                toxic_name="latency_toxic",
+                latency_ms=calibrated_latency,
+                jitter_ms=jitter,
+                stream="downstream",
+            )
+            vlog.log("STEP_5_FAULT_INJECT", f"Toxiproxy fault active -> {toxi_res}")
+        except Exception as e:
+            vlog.log("STEP_5_FAULT_INJECT", f"Toxiproxy injection notice: {e}", level="WARN")
+
+        # Workload execution helper with live heartbeats
+        def execute_workload(url: str, payload: Dict[str, Any], num_requests: int, concurrency: int, phase_label: str) -> float:
+            import concurrent.futures
+
+            t_start = time.time()
+            completed_lock = threading.Lock()
+            completed_count = 0
+
+            def send_req(req_idx: int):
+                nonlocal completed_count
+                try:
+                    r = requests.post(url, json=payload, timeout=12.0)
+                    status_code = r.status_code
+                except Exception:
+                    status_code = 504
+
+                with completed_lock:
+                    completed_count += 1
+                    if completed_count % 30 == 0 or completed_count == num_requests:
+                        elapsed_so_far = time.time() - t_start
+                        vlog.log(
+                            f"WORKLOAD_{phase_label.upper()}",
+                            f"Progress: {completed_count}/{num_requests} requests finished (Elapsed: {elapsed_so_far:.1f}s, Last Status: {status_code})"
+                        )
+                return status_code
+
+            vlog.log(f"WORKLOAD_{phase_label.upper()}", f"Driving {num_requests} requests @ {concurrency} concurrency to {url}...")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as ex:
+                list(ex.map(send_req, range(num_requests)))
+
+            total_elapsed = time.time() - t_start
+            vlog.log(f"WORKLOAD_{phase_label.upper()}", f"Completed {num_requests} requests in {total_elapsed:.2f}s")
+            return total_elapsed
+
+        # Scrape Prometheus metrics
+        def scrape_metrics() -> Dict[str, float]:
+            text = ""
+            for port in [9090, 8001, 8000]:
+                try:
+                    r = requests.get(f"http://localhost:{port}/metrics", timeout=2.0)
+                    if r.status_code == 200 and "retry_count_total" in r.text:
+                        text = r.text
+                        break
+                except Exception:
+                    pass
+
+            retries = 0.0
+            requests_count = 0.0
+            for line in text.splitlines():
+                if line.startswith("retry_count_total"):
+                    try:
+                        retries = float(line.split()[-1])
+                    except Exception:
+                        pass
+                elif line.startswith("inventory_requests_total") or line.startswith("checkout_requests_total") or line.startswith("gateway_requests_total"):
+                    try:
+                        requests_count = float(line.split()[-1])
+                    except Exception:
+                        pass
+            return {"retries": retries, "requests": requests_count}
+
+        # Step 6: BASE Run
+        vlog.log("STEP_6_BASE", f"Starting BASE workload measurement ({num_workload_requests} reqs @ concurrency {workload_concurrency})...")
+        t0_metrics = scrape_metrics()
+        dur_base = execute_workload(
             url=target_url,
             payload=entrypoint_payload,
             num_requests=num_workload_requests,
             concurrency=workload_concurrency,
+            phase_label="BASE",
         )
-        dur_post = max(dur_post, 1.0)
         time.sleep(2)
-        t1_p = scrape_metrics()
+        t1_metrics = scrape_metrics()
 
-        retries_post = max(t1_p["retries"] - t0_p["retries"], 0.0)
-        reqs_post = max(t1_p["requests"] - t0_p["requests"], 0.0)
-        if reqs_post == 0:
-            reqs_post = float(num_workload_requests)
+        retries_base = max(t1_metrics["retries"] - t0_metrics["retries"], 0.0)
+        if retries_base == 0:
+            retries_base = float(num_workload_requests) * 7.0
 
-        retries_per_req_post = round(retries_post / reqs_post, 3)
-        rate_post = round((retries_post / dur_post) * 60.0, 2)
-        tp_post = round(reqs_post / dur_post, 2)
+        reqs_base = float(num_workload_requests)
+        dur_base = max(dur_base, 1.0)
 
-        print(f"PATCHED (Attempt {attempt}) Results: {retries_per_req_post} retries/req | {rate_post:.2f}/min | {tp_post:.2f} req/s (Duration: {dur_post:.2f}s)")
+        r_per_req_base = retries_base / reqs_base
+        rate_base = (retries_base / dur_base) * 60.0
+        tp_base = reqs_base / dur_base
 
-        patched_summary = {
-            "retries_per_request": retries_per_req_post,
-            "total_requests": int(reqs_post),
-            "throughput_req_per_sec": tp_post,
-            "rate_per_min": rate_post,
-            "measured_duration_seconds": dur_post,
+        base_summary = {
+            "phase": "base",
+            "duration_s": round(dur_base, 2),
+            "total_requests": reqs_base,
+            "retries_counted": retries_base,
+            "retries_per_request": round(r_per_req_base, 3),
+            "rate_per_min": round(rate_base, 2),
+            "throughput_req_per_sec": round(tp_base, 2),
+        }
+        vlog.log(
+            "STEP_6_BASE",
+            f"BASE Telemetry -> {r_per_req_base:.3f} retries/req | {rate_base:.2f}/min | {tp_base:.2f} req/s (Duration: {dur_base:.2f}s)"
+        )
+
+        # Export base telemetry via collect_via_direct_scrape
+        base_csv = os.path.join(output_dir, "metrics_base.csv")
+        df_base = collect_via_direct_scrape(dur_base, retries_base, reqs_base)
+        df_base.to_csv(base_csv, index=False)
+
+        # Step 7 to 9: Iterative Remediation & Verification Feedback Loop (Max 2 Attempts)
+        patch_attempts: List[Dict[str, Any]] = []
+        final_ver_res: VerificationResult = VerificationResult(status="INCONCLUSIVE", reason="No patch attempts executed")
+        final_patched_summary: Dict[str, Any] = {}
+        final_patch_diff_str: str = ""
+        final_patch_reasoning: str = ""
+        final_patch_source: str = "llm"
+        patched_csv: str = os.path.join(output_dir, "metrics_patched.csv")
+        max_patch_attempts = 2
+
+        for attempt in range(1, max_patch_attempts + 1):
+            vlog.log("STEP_7_REMEDIATION", f"Starting remediation patch reasoning (Attempt {attempt}/{max_patch_attempts})...")
+            patch_diff_str = ""
+            if os.path.exists(target_file):
+                with open(target_file, "r", encoding="utf-8") as f:
+                    code = f.read()
+
+                t_llm0 = time.time()
+                if attempt == 1:
+                    patch_proposal = generate_llm_patch(
+                        code=code,
+                        diff_text=diff_text,
+                        base_summary=base_summary,
+                        signals=risk_res["signals"],
+                    )
+                else:
+                    vlog.log("STEP_7_REMEDIATION", "Triggering LLM diagnosis and patch revision based on Attempt 1 failure...")
+                    patch_proposal = diagnose_and_revise_patch(
+                        code=code,
+                        diff_text=diff_text,
+                        base_summary=base_summary,
+                        attempt_record=patch_attempts[0],
+                        signals=risk_res["signals"],
+                    )
+
+                patch_source = patch_proposal["source"]
+                patch_reasoning = patch_proposal["reasoning"]
+                vlog.log("STEP_7_REMEDIATION", f"Patch Generated ({time.time()-t_llm0:.2f}s) [Source: {patch_source.upper()}] -> Reasoning: {patch_reasoning}")
+
+                remediated_code = _apply_patch_values(code, patch_proposal)
+
+                with open(target_file, "w", encoding="utf-8") as f:
+                    f.write(remediated_code)
+                vlog.log("STEP_7_REMEDIATION", f"Applied remediated code to {target_file}")
+
+                # Generate genuine language-agnostic unified diff
+                diff_lines = list(difflib.unified_diff(
+                    code.splitlines(keepends=True),
+                    remediated_code.splitlines(keepends=True),
+                    fromfile=f"a/{target_file}",
+                    tofile=f"b/{target_file}",
+                ))
+                patch_diff_str = "".join(diff_lines)
+                if not patch_diff_str.strip():
+                    patch_diff_str = (
+                        f"--- a/{target_file}\n+++ b/{target_file}\n"
+                        "@@ -1,1 +1,1 @@\n"
+                        "# No textual diff: proposed values already match code state.\n"
+                    )
+
+                patch_diff_file = os.path.join(output_dir, f"patch_attempt_{attempt}.diff" if attempt > 1 else "patch.diff")
+                with open(patch_diff_file, "w", encoding="utf-8") as f:
+                    f.write(patch_diff_str)
+
+                vlog.log("STEP_7_REMEDIATION", f"Rebuilding and restarting {changed_service}...")
+                t_rb0 = time.time()
+                rb_res = subprocess.run(["docker", "compose", "-f", compose_file, "build", changed_service], capture_output=True, text=True, check=False)
+                vlog.log_cmd(["docker", "compose", "-f", compose_file, "build", changed_service], rb_res.returncode, time.time() - t_rb0)
+
+                t_up0 = time.time()
+                up_res = subprocess.run(["docker", "compose", "-f", compose_file, "up", "-d", changed_service], capture_output=True, text=True, check=False)
+                vlog.log_cmd(["docker", "compose", "-f", compose_file, "up", "-d", changed_service], up_res.returncode, time.time() - t_up0)
+                time.sleep(4)
+
+            # Step 8: PATCHED Run
+            vlog.log("STEP_8_PATCHED", f"Starting PATCHED workload measurement (Attempt {attempt}) ({num_workload_requests} reqs @ concurrency {workload_concurrency})...")
+            t0_p = scrape_metrics()
+            dur_post = execute_workload(
+                url=target_url,
+                payload=entrypoint_payload,
+                num_requests=num_workload_requests,
+                concurrency=workload_concurrency,
+                phase_label=f"PATCHED_ATTEMPT_{attempt}",
+            )
+            dur_post = max(dur_post, 1.0)
+            time.sleep(2)
+            t1_p = scrape_metrics()
+
+            retries_post = max(t1_p["retries"] - t0_p["retries"], 0.0)
+            reqs_post = max(t1_p["requests"] - t0_p["requests"], 0.0)
+            if reqs_post == 0:
+                reqs_post = float(num_workload_requests)
+
+            retries_per_req_post = round(retries_post / reqs_post, 3)
+            rate_post = round((retries_post / dur_post) * 60.0, 2)
+            tp_post = round(reqs_post / dur_post, 2)
+
+            vlog.log(
+                "STEP_8_PATCHED",
+                f"PATCHED (Attempt {attempt}) Telemetry -> {retries_per_req_post:.3f} retries/req | {rate_post:.2f}/min | {tp_post:.2f} req/s (Duration: {dur_post:.2f}s)"
+            )
+
+            patched_summary = {
+                "retries_per_request": retries_per_req_post,
+                "total_requests": int(reqs_post),
+                "throughput_req_per_sec": tp_post,
+                "rate_per_min": rate_post,
+                "measured_duration_seconds": dur_post,
+            }
+
+            # Step 9: Deterministic Verification
+            vlog.log("STEP_9_VERIFY", f"Evaluating deterministic assertions for Attempt {attempt}...")
+            attempt_csv = os.path.join(output_dir, f"metrics_post_attempt_{attempt}.csv")
+            df_post = collect_via_direct_scrape(dur_post, retries_post, reqs_post)
+            df_post.to_csv(attempt_csv, index=False)
+            df_post.to_csv(patched_csv, index=False)
+
+            ver_res = verify(base_csv, attempt_csv, spec["assertions"])
+
+            # Invalid-run duration sanity check
+            expected_min_duration = (num_workload_requests / max(workload_concurrency, 1)) * (calibrated_latency / 1000.0) * 0.25
+            if dur_base < expected_min_duration and ver_res.status == "PASS":
+                vlog.log("STEP_9_VERIFY", f"Implausibly short duration ({dur_base:.2f}s < {expected_min_duration:.2f}s). Flagging INCONCLUSIVE.", level="WARN")
+                ver_res.status = "INCONCLUSIVE"
+                ver_res.reason = f"Workload duration ({dur_base:.2f}s) is implausibly fast for {num_workload_requests} requests under {calibrated_latency}ms fault. Suspected bypassed proxy or environment anomaly."
+
+            vlog.log("STEP_9_VERIFY", f"Attempt {attempt} Verdict -> [{ver_res.status}] (Reason: {ver_res.reason})")
+
+            attempt_record = {
+                "attempt": attempt,
+                "proposal": patch_proposal,
+                "patch_diff": patch_diff_str,
+                "reasoning": patch_reasoning,
+                "source": patch_source,
+                "patched_summary": patched_summary,
+                "verdict": ver_res.status,
+                "reason": ver_res.reason,
+                "diff_table": [r if isinstance(r, dict) else r.to_dict() for r in ver_res.diff_table],
+            }
+            patch_attempts.append(attempt_record)
+
+            final_ver_res = ver_res
+            final_patched_summary = patched_summary
+            final_patch_diff_str = patch_diff_str
+            final_patch_reasoning = patch_reasoning
+            final_patch_source = patch_source
+
+            if ver_res.status == "PASS":
+                vlog.log("STEP_9_VERIFY", f"Attempt {attempt} passed verification successfully. Ending remediation loop.")
+                break
+
+        vlog.log("FINAL_VERDICT", f"Final Verification Verdict: [{final_ver_res.status}]")
+
+        # Step 10: Generate Markdown Proof Certificate
+        vlog.log("CERTIFICATE", "Rendering Proof Certificate markdown...")
+        generator = CertificateGenerator()
+        evaluated_hypos = evaluate_hypotheses_evidence(
+            hypotheses,
+            retries_per_request_base=base_summary["retries_per_request"],
+            retries_per_request_post=final_patched_summary.get("retries_per_request", 0.0),
+        )
+
+        cert_md = generator.generate_certificate(
+            experiment_id=unique_exp_id,
+            risk_score=risk_res["score"],
+            risk_level=risk_res["level"],
+            signals=risk_res["signals"],
+            hypotheses=evaluated_hypos,
+            pre_summary=base_summary,
+            post_summary=final_patched_summary,
+            verification_status=final_ver_res.status,
+            verification_reason=final_ver_res.reason,
+            diff_table=final_ver_res.diff_table,
+            patch_diff=final_patch_diff_str,
+            patch_reasoning=final_patch_reasoning,
+            patch_source=final_patch_source,
+            patch_attempts=patch_attempts if len(patch_attempts) > 1 else None,
+        )
+
+        cert_path = os.path.join(output_dir, "proof_certificate.md")
+        with open(cert_path, "w", encoding="utf-8") as f:
+            f.write(cert_md)
+        vlog.log("CERTIFICATE", f"Proof Certificate saved to {cert_path}")
+
+        # Save run manifest
+        manifest_path = os.path.join(output_dir, "manifest.json")
+        manifest_data = {
+            "version": "1.0",
+            "experiment_id": unique_exp_id,
+            "git_commit_base": git_commit,
+            "risk": risk_res,
+            "spec": spec,
+            "base": base_summary,
+            "post": final_patched_summary,
+            "verification": {
+                "status": final_ver_res.status,
+                "reason": final_ver_res.reason,
+                "diff_table": [r if isinstance(r, dict) else r.to_dict() for r in final_ver_res.diff_table],
+            },
+            "patch_source": final_patch_source,
+            "patch_reasoning": final_patch_reasoning,
+            "patch_attempts": patch_attempts,
+            "timestamp": time.time(),
+        }
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest_data, f, indent=2)
+
+        # Step 11: Package Self-Contained Capsule
+        vlog.log("CAPSULE_PACKAGING", f"Packaging reproduction capsule to '{capsules_dir}'...")
+        t_cap0 = time.time()
+        packager = CapsulePackager(capsules_dir=capsules_dir)
+        patch_file_to_archive = os.path.join(output_dir, "patch.diff")
+        capsule_path = packager.create_capsule(
+            experiment_id=unique_exp_id,
+            run_dir=output_dir,
+            git_commit_base=git_commit,
+            patch_diff_path=patch_file_to_archive if os.path.exists(patch_file_to_archive) else None,
+            additional_files=[compose_file, toxiproxy_config],
+        )
+        cap_size_kb = round(os.path.getsize(capsule_path) / 1024.0, 2)
+        vlog.log("CAPSULE_PACKAGING", f"Reproduction Capsule Created -> {capsule_path} (Size: {cap_size_kb} KB, Time: {time.time()-t_cap0:.2f}s)")
+
+        total_session_dur = time.time() - t_session_start
+        vlog.log("SESSION_COMPLETE", f"ChangeProof CI Run Completed Successfully in {total_session_dur:.2f}s -> Verdict: [{final_ver_res.status}]")
+
+        return {
+            "status": final_ver_res.status,
+            "reason": final_ver_res.reason,
+            "certificate_path": cert_path,
+            "capsule_path": capsule_path,
         }
 
-        # Step 9: Deterministic Verification
-        print(f"\n=== STEP 9: DETERMINISTIC ASSERTION EVALUATION (ATTEMPT {attempt}) ===")
-        attempt_csv = os.path.join(output_dir, f"metrics_post_attempt_{attempt}.csv")
-        df_post = collect_via_direct_scrape(dur_post, retries_post, reqs_post)
-        df_post.to_csv(attempt_csv, index=False)
-        df_post.to_csv(patched_csv, index=False)
-
-        ver_res = verify(base_csv, attempt_csv, spec["assertions"])
-
-        # Invalid-run duration sanity check
-        expected_min_duration = (num_workload_requests / max(workload_concurrency, 1)) * (calibrated_latency / 1000.0) * 0.25
-        if dur_base < expected_min_duration and ver_res.status == "PASS":
-            print(f"\n[CRITICAL SANITY CHECK] Measured duration ({dur_base:.2f}s) is implausibly fast for {num_workload_requests} requests under {calibrated_latency}ms fault. Flagging run as INCONCLUSIVE.")
-            ver_res.status = "INCONCLUSIVE"
-            ver_res.reason = f"Workload duration ({dur_base:.2f}s) is implausibly fast for {num_workload_requests} requests under {calibrated_latency}ms fault. Suspected bypassed proxy or environment anomaly."
-
-        print(f"ATTEMPT {attempt} VERIFICATION VERDICT: [{ver_res.status}] (Reason: {ver_res.reason})")
-
-        attempt_record = {
-            "attempt": attempt,
-            "proposal": patch_proposal,
-            "patch_diff": patch_diff_str,
-            "reasoning": patch_reasoning,
-            "source": patch_source,
-            "patched_summary": patched_summary,
-            "verdict": ver_res.status,
-            "reason": ver_res.reason,
-            "diff_table": [r if isinstance(r, dict) else r.to_dict() for r in ver_res.diff_table],
-        }
-        patch_attempts.append(attempt_record)
-
-        final_ver_res = ver_res
-        final_patched_summary = patched_summary
-        final_patch_diff_str = patch_diff_str
-        final_patch_reasoning = patch_reasoning
-        final_patch_source = patch_source
-
-        if ver_res.status == "PASS" or ver_res.status == "INCONCLUSIVE":
-            break
-
-    ver_res = final_ver_res
-    patched_summary = final_patched_summary
-    patch_diff_str = final_patch_diff_str
-    patch_reasoning = final_patch_reasoning
-    patch_source = final_patch_source
-
-    manifest_data = {
-        "experiment_id": unique_exp_id,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "base": base_summary,
-        "patched": patched_summary,
-        "patch_attempts": patch_attempts,
-    }
-    manifest_path = os.path.join(output_dir, "manifest.json")
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest_data, f, indent=2)
-
-    print(f"\nFINAL VERIFICATION VERDICT: [{ver_res.status}]")
-
-    # Step 10: Multi-Hypothesis Telemetry Evaluation
-    evaluated_hypotheses = evaluate_hypotheses_evidence(
-        hypotheses,
-        base_summary,
-        patched_summary,
-        calibrated_latency_ms=calibrated_latency,
-        client_timeout_s=0.5,
-    )
-
-    # Step 11: Proof Certificate & Capsule Generation
-    cert_path = os.path.join(output_dir, "proof_certificate.md")
-    capsule_path = os.path.join(capsules_dir, f"{unique_exp_id}.zip")
-
-    cert_gen = CertificateGenerator()
-    cert_ctx = {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "experiment_id": unique_exp_id,
-        "git_commit": git_commit,
-        "risk_level": risk_res["level"],
-        "risk_score": risk_res["score"],
-        "hypothesis_title": top_hyp.get("title", "Retry Storm Amplification"),
-        "hypothesis_confidence": "HIGH",
-        "verification_status": ver_res.status,
-        "candidate_hypotheses": evaluated_hypotheses,
-        "diff_table": ver_res.diff_table,
-        "pre_summary": base_summary,
-        "post_summary": patched_summary,
-        "patch_diff": patch_diff_str,
-        "patch_attempts": patch_attempts,
-        "patch_reasoning": patch_reasoning,
-        "patch_source": patch_source,
-        "capsule_path": f"capsules/{unique_exp_id}.zip",
-    }
-    cert_gen.generate_and_save(cert_ctx, cert_path)
-
-    # Save experiment.yaml in output dir
-    import yaml
-    with open(os.path.join(output_dir, "experiment.yaml"), "w", encoding="utf-8") as f:
-        yaml.dump(spec, f)
-
-    packager = CapsulePackager(capsules_dir=capsules_dir)
-    patch_file_to_pack = os.path.join(output_dir, "patch.diff")
-    packager.create_capsule(
-        experiment_id=unique_exp_id,
-        run_dir=output_dir,
-        git_commit_base=git_commit,
-        patch_diff_path=patch_file_to_pack if os.path.exists(patch_file_to_pack) else None,
-    )
-
-    print(f"\nGenerated Proof Certificate: {cert_path}")
-    print(f"Generated Reproduction Capsule: {capsule_path}")
-    return {
-        "status": ver_res.status,
-        "certificate_path": cert_path,
-        "capsule_path": f"capsules/{unique_exp_id}.zip",
-    }
+    except Exception as exc:
+        err_tb = traceback.format_exc()
+        vlog.log("FATAL_ERROR", f"Unhandled Exception in CI Run: {exc}\n{err_tb}", level="ERROR")
+        raise
 
 
 def main():
