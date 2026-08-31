@@ -401,7 +401,7 @@ def run_synthetic_ci(
     jitter = spec["fault"]["toxic"]["attributes"].get("jitter", 75)
     
     entrypoint_route = spec["workload"].get("entrypoint_route", "/orders")
-    entrypoint_payload = spec["workload"].get("entrypoint_payload", {"item_id": "item_123", "quantity": 1})
+    entrypoint_payload = spec["workload"].get("entrypoint_payload", {"item_id": "item_123", "quantity": 1, "amount": 99.99, "user_id": "cust_123"})
     
     workload_vus = int(spec["workload"].get("vus", 10))
     workload_rps = int(spec["workload"].get("rps_target", 10))
@@ -835,6 +835,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 

@@ -1,4 +1,4 @@
-"""Frontend Gateway Service — Ingress API forwarding customer orders to Checkout."""
+﻿"""Frontend Gateway Service â€” Ingress API forwarding customer orders to Checkout."""
 import os
 import time
 import uuid
@@ -29,7 +29,7 @@ FRONTEND_LATENCY_SECONDS = Histogram(
 class OrderRequest(BaseModel):
     item_id: str
     quantity: int
-    amount: float
+    amount: Optional[float] = 99.99
     user_id: Optional[str] = "user_default"
     force_payment_failure: Optional[bool] = False
 
@@ -60,7 +60,7 @@ def submit_order(order: OrderRequest):
     checkout_payload = {
         "order_id": order_id,
         "amount": order.amount,
-        "user_id": order.user_id,
+        "customer_id": order.user_id,`n        "user_id": order.user_id,
         "force_payment_failure": order.force_payment_failure,
     }
     
@@ -110,3 +110,5 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
