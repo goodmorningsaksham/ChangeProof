@@ -16,7 +16,6 @@ import argparse
 import subprocess
 import requests
 import pandas as pd
-import shutil
 import threading
 import traceback
 import difflib
@@ -33,27 +32,18 @@ from changeproof.llm_client import call_llm, parse_json_response
 
 
 
-def get_free_disk_gb(path: str = ".") -> float:
-    try:
-        total, used, free = shutil.disk_usage(os.path.abspath(path))
-        return round(free / (1024 ** 3), 2)
-    except Exception:
-        return -1.0
-
-
 class VerificationLogger:
     def __init__(self, log_path: str):
         self.log_path = os.path.abspath(log_path)
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         self._lock = threading.Lock()
-        header = f"\n{'='*80}\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] VERIFICATION RUN STARTED (Free C: Disk: {get_free_disk_gb()} GB)\n{'='*80}\n"
+        header = f"\n{'='*80}\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] CHANGEPROOF CI VERIFICATION RUN STARTED\n{'='*80}\n"
         with open(self.log_path, "a", encoding="utf-8") as f:
             f.write(header)
 
     def log(self, stage: str, message: str, level: str = "INFO"):
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
-        disk_gb = get_free_disk_gb()
-        entry = f"[{ts}] [{level}] [{stage}] (Disk Free: {disk_gb} GB) {message}"
+        entry = f"[{ts}] [{level}] [{stage}] {message}" if level != "INFO" else f"[{ts}] [{stage}] {message}"
         print(entry)
         try:
             with self._lock:
@@ -64,7 +54,7 @@ class VerificationLogger:
 
     def log_cmd(self, cmd: List[str], exit_code: int, duration_s: float):
         cmd_str = " ".join(cmd)
-        self.log("DOCKER/SYSTEM", f"Executed: '{cmd_str}' | Exit Code: {exit_code} | Duration: {duration_s:.2f}s")
+        self.log("DOCKER", f"Executed: '{cmd_str}' | Exit Code: {exit_code} | Duration: {duration_s:.2f}s")
 
 def wait_for_service(url: str, timeout_s: int = 45) -> bool:
     """Polls an HTTP endpoint until 200 OK or timeout."""
