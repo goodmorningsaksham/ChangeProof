@@ -121,3 +121,4 @@ class CapsulePackager:
             z.writestr("README.md", readme_text)
 
         return capsule_path
+

@@ -111,8 +111,8 @@ def call_llm(prompt: str, max_tokens: int = 2048) -> Optional[str]:
     if anthropic_key:
         try:
             import anthropic
-            client = anthropic.Anthropic(timeout=20.0)
-            msg = client.messages.create(
+            anthropic_client = anthropic.Anthropic(timeout=20.0)
+            msg = anthropic_client.messages.create(
                 model="claude-3-5-haiku-latest",
                 max_tokens=max_tokens,
                 temperature=0.0,
@@ -150,3 +150,4 @@ def parse_json_response(raw_text: Optional[str]) -> Optional[dict]:
         except Exception:
             pass
     return None
+
