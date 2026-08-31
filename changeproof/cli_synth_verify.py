@@ -16,6 +16,10 @@ import argparse
 import subprocess
 import requests
 import pandas as pd
+import shutil
+import threading
+import traceback
+import difflib
 from typing import Dict, Any, List
 
 from changeproof.risk_assessor import RiskAssessor
