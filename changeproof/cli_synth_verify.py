@@ -587,9 +587,9 @@ def run_synthetic_ci(
         # Scrape Prometheus metrics
         def scrape_metrics() -> Dict[str, float]:
             text = ""
-            for port in [9090, 8001, 8000]:
+            for port in [8001, 8000, 9090]:
                 try:
-                    r = requests.get(f"http://localhost:{port}/metrics", timeout=2.0)
+                    r = requests.get(f"http://localhost:{port}/metrics", timeout=(1.0, 2.0))
                     if r.status_code == 200 and "retry_count_total" in r.text:
                         text = r.text
                         break
@@ -812,8 +812,9 @@ def run_synthetic_ci(
         generator = CertificateGenerator()
         evaluated_hypos = evaluate_hypotheses_evidence(
             hypotheses,
-            retries_per_request_base=base_summary["retries_per_request"],
-            retries_per_request_post=final_patched_summary.get("retries_per_request", 0.0),
+            pre_summary=base_summary,
+            post_summary=final_patched_summary,
+            calibrated_latency_ms=calibrated_latency,
         )
 
         cert_md = generator.generate_certificate(
